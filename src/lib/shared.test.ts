@@ -1,4 +1,4 @@
-import { buildCoverageGraph, Gateway, HTTPRoute, TLSRoute, TCPRoute } from './index.js';
+import { buildCoverageGraph, Gateway, HTTPRoute, TLSRoute, TCPRoute, RouteCoverageDetail } from './shared.js';
 import { describe, it, expect } from 'vitest';
 
 describe('buildCoverageGraph', () => {
@@ -30,8 +30,8 @@ describe('buildCoverageGraph', () => {
     expect(graph.summary.coveredRoutes).toBe(1);
     expect(graph.summary.uncoveredRoutes).toBe(1);
     expect(graph.summary.coveragePercent).toBeCloseTo(50);
-    const rcCovered = graph.routeCoverage.find(r => r.name === 'covered');
-    const rcUncovered = graph.routeCoverage.find(r => r.name === 'uncovered');
+    const rcCovered = graph.routeCoverage.find((r: RouteCoverageDetail) => r.name === 'covered');
+    const rcUncovered = graph.routeCoverage.find((r: RouteCoverageDetail) => r.name === 'uncovered');
     expect(rcCovered?.covered).toBe(true);
     expect(rcUncovered?.covered).toBe(false);
   });
@@ -57,8 +57,8 @@ describe('buildCoverageGraph', () => {
       spec: { parentRefs: [{ name: 'gw2', sectionName: 'tcp' }], rules: [] }
     };
     const graph = buildCoverageGraph(gateways, [tls, tcp]);
-    const tlsRc = graph.routeCoverage.find(r => r.name === 'secure-app');
-    const tcpRc = graph.routeCoverage.find(r => r.name === 'stream-app');
+    const tlsRc = graph.routeCoverage.find((r: RouteCoverageDetail) => r.name === 'secure-app');
+    const tcpRc = graph.routeCoverage.find((r: RouteCoverageDetail) => r.name === 'stream-app');
     expect(tlsRc?.covered).toBe(true);
     expect(tcpRc?.covered).toBe(true);
     expect(tlsRc?.kind).toBe('TLSRoute');

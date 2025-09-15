@@ -9,7 +9,6 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@gav/shared": "workspace:*",
     "@types/js-yaml": "^4.0.9",
     "cytoscape": "^3.27.0",
     "js-yaml": "^4.1.0",

@@ -1,3 +1,4 @@
+// Consolidated former @gav/shared exports
 export interface Gateway {
   apiVersion: string; // gateway.networking.k8s.io/v1beta1
   kind: 'Gateway';
@@ -135,12 +136,10 @@ export function buildCoverageGraph(gateways: Gateway[], routes: AnyRoute[]): Cov
     for (const parent of rt.spec.parentRefs || []) {
       const parentNs = parent.namespace || namespace;
       const gwRefId = `gateway:${parentNs}/${parent.name}`;
-      // Determine if gateway exists
       const gwExists = gateways.some(gw => (gw.metadata.namespace || 'default') === parentNs && gw.metadata.name === parent.name);
       if (!gwExists) {
         missingParentRefs.push({ name: parent.name, namespace: parentNs });
       }
-      // Connect route to gateway or appropriate listener if sectionName provided
       let targetId = gwRefId;
       if (parent.sectionName) {
         const listenerId = `${gwRefId}:listener:${parent.sectionName}`;

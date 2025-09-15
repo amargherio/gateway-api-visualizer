@@ -25,9 +25,9 @@
   // Import sample YAML files as raw text so we don't rely on fetch paths that may map to index.html
   // Using relative paths to repo root; Vite should allow this in monorepo workspace. If not, fallback could move samples under /public.
   // @ts-ignore - raw import query
-  import basicSample from '../../../../data/sample.yaml?raw';
+  import basicSample from '../../data/sample.yaml?raw';
   // @ts-ignore - raw import query
-  import multiSample from '../../../../data/sample-multi-gateways.yaml?raw';
+  import multiSample from '../../data/sample-multi-gateways.yaml?raw';
   
   const dispatch = createEventDispatcher<{
     parse: { gateways: Gateway[]; routes: AnyRoute[] };
