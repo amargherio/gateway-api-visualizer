@@ -7,6 +7,31 @@ import { join } from 'path';
 
 const DATA_DIR = process.env.DATA_DIR || join(process.cwd(), 'data');
 
+// Narrow a raw parsed object to Gateway or AnyRoute based on discriminant fields.
+function isGateway(obj: unknown): obj is Gateway {
+  return (
+    typeof obj === 'object' &&
+    obj !== null &&
+    'kind' in obj &&
+    (obj as Record<string, unknown>).kind === 'Gateway'
+  );
+}
+function isRoute(obj: unknown): obj is AnyRoute {
+  if (!(typeof obj === 'object' && obj !== null && 'kind' in obj)) return false;
+  const kind = (obj as Record<string, unknown>).kind;
+  return (
+    kind === 'HTTPRoute' ||
+    kind === 'TLSRoute' ||
+    kind === 'TCPRoute' ||
+    kind === 'GRPCRoute'
+  );
+}
+
+function parseYamlDocuments(raw: string): unknown[] {
+  // js-yaml loadAll returns any[]; we re-type it to unknown[] to enforce explicit narrowing later.
+  return loadAll(raw) as unknown[];
+}
+
 function loadResources(): { gateways: Gateway[]; routes: AnyRoute[] } {
   const gateways: Gateway[] = [];
   const routes: AnyRoute[] = [];
@@ -18,11 +43,10 @@ function loadResources(): { gateways: Gateway[]; routes: AnyRoute[] } {
   }
   for (const f of files) {
     const raw = readFileSync(join(DATA_DIR, f), 'utf8');
-    const docs = loadAll(raw) as any[];
+    const docs = parseYamlDocuments(raw);
     for (const doc of docs) {
-      if (!doc || typeof doc !== 'object') continue;
-      if (doc.kind === 'Gateway') gateways.push(doc as Gateway);
-      else if (doc.kind === 'HTTPRoute' || doc.kind === 'TLSRoute' || doc.kind === 'TCPRoute' || doc.kind === 'GRPCRoute') routes.push(doc as AnyRoute);
+      if (isGateway(doc)) gateways.push(doc);
+      else if (isRoute(doc)) routes.push(doc);
     }
   }
   return { gateways, routes };

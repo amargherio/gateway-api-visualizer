@@ -98,7 +98,7 @@
     }
   }
 
-  function onYamlError(event: CustomEvent<Array<{ line: number; column: number; message: string }>>) {
+  function onYamlError() {
     // Clear graph if there are YAML errors
     graph = null;
     elements = [];
