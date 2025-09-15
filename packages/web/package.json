@@ -13,8 +13,8 @@
     "@types/js-yaml": "^4.0.9",
     "cytoscape": "^3.27.0",
     "js-yaml": "^4.1.0",
-  "monaco-editor-core": "^0.53.0",
-  "monaco-yaml": "^5.1.2",
+    "monaco-editor-core": "^0.53.0",
+    "monaco-yaml": "^5.1.2",
     "svelte": "^4.2.0",
     "yaml-lint": "^1.7.0"
   },
@@ -24,7 +24,7 @@
     "autoprefixer": "^10.4.21",
     "postcss": "^8.5.6",
     "tailwindcss": "^4.1.13",
-  "typescript": "^5.6.3",
+    "typescript": "^5.6.3",
     "vite": "^5.2.0"
   }
 }

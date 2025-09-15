@@ -9,7 +9,8 @@
 		"dev": "pnpm --filter @gav/shared dev & pnpm --filter @gav/web dev",
 		"lint": "eslint . --ext .ts,.svelte,.js",
 		"format": "prettier --write .",
-		"test": "vitest --run"
+		"test": "vitest --run",
+		"build:web": "pnpm --filter @gav/web build && ./scripts/post-build.sh"
 	},
 	"devDependencies": {
 		"@types/js-yaml": "^4.0.9",
