@@ -1,0 +1,350 @@
+# Expanded sample with 3 Gateways (2+ listeners each) and 20 Routes (HTTPRoute/TLSRoute/GRPCRoute)
+# Namespaces used: default, payments, media
+# Gateway/listener matrix:
+# gw-prod: listeners web-http (HTTP 80), web-https (HTTPS 443), grpc (HTTPS 8443)
+# gw-edge: listeners public (HTTP 80), secure (HTTPS 443)
+# gw-internal: listeners internal-http (HTTP 8080), internal-tls (TLS 8443)
+# Route distribution (20 total):
+# - HTTPRoute: 10
+# - TLSRoute: 5
+# - GRPCRoute: 5
+---
+apiVersion: gateway.networking.k8s.io/v1beta1
+kind: Gateway
+metadata:
+  name: gw-prod
+  namespace: default
+spec:
+  gatewayClassName: example
+  listeners:
+    - name: web-http
+      hostname: prod.example.com
+      port: 80
+      protocol: HTTP
+    - name: web-https
+      hostname: prod.example.com
+      port: 443
+      protocol: HTTPS
+    - name: grpc
+      hostname: grpc.example.com
+      port: 8443
+      protocol: HTTPS
+---
+apiVersion: gateway.networking.k8s.io/v1beta1
+kind: Gateway
+metadata:
+  name: gw-edge
+  namespace: default
+spec:
+  gatewayClassName: example
+  listeners:
+    - name: public
+      hostname: edge.example.com
+      port: 80
+      protocol: HTTP
+    - name: secure
+      hostname: edge.example.com
+      port: 443
+      protocol: HTTPS
+---
+apiVersion: gateway.networking.k8s.io/v1beta1
+kind: Gateway
+metadata:
+  name: gw-internal
+  namespace: payments
+spec:
+  gatewayClassName: example
+  listeners:
+    - name: internal-http
+      hostname: internal.payments.svc.cluster.local
+      port: 8080
+      protocol: HTTP
+    - name: internal-tls
+      hostname: internal.payments.svc.cluster.local
+      port: 8443
+      protocol: TLS
+
+# ---------------- HTTPRoutes (10) ----------------
+---
+apiVersion: gateway.networking.k8s.io/v1beta1
+kind: HTTPRoute
+metadata:
+  name: homepage
+  namespace: default
+spec:
+  parentRefs:
+    - name: gw-prod
+      sectionName: web-http
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+---
+apiVersion: gateway.networking.k8s.io/v1beta1
+kind: HTTPRoute
+metadata:
+  name: homepage-secure
+  namespace: default
+spec:
+  parentRefs:
+    - name: gw-prod
+      sectionName: web-https
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+---
+apiVersion: gateway.networking.k8s.io/v1beta1
+kind: HTTPRoute
+metadata:
+  name: api-v1
+  namespace: default
+spec:
+  parentRefs:
+    - name: gw-prod
+      sectionName: web-http
+    - name: gw-edge
+      sectionName: public
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /api/v1
+---
+apiVersion: gateway.networking.k8s.io/v1beta1
+kind: HTTPRoute
+metadata:
+  name: api-v2
+  namespace: default
+spec:
+  parentRefs:
+    - name: gw-prod
+      sectionName: web-https
+    - name: gw-edge
+      sectionName: secure
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /api/v2
+---
+apiVersion: gateway.networking.k8s.io/v1beta1
+kind: HTTPRoute
+metadata:
+  name: media-cdn
+  namespace: media
+spec:
+  parentRefs:
+    - name: gw-edge
+      sectionName: public
+      namespace: default
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /media
+---
+apiVersion: gateway.networking.k8s.io/v1beta1
+kind: HTTPRoute
+metadata:
+  name: payments-public
+  namespace: payments
+spec:
+  parentRefs:
+    - name: gw-edge
+      sectionName: secure
+      namespace: default
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /pay
+---
+apiVersion: gateway.networking.k8s.io/v1beta1
+kind: HTTPRoute
+metadata:
+  name: internal-dashboard
+  namespace: payments
+spec:
+  parentRefs:
+    - name: gw-internal
+      sectionName: internal-http
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /dashboard
+---
+apiVersion: gateway.networking.k8s.io/v1beta1
+kind: HTTPRoute
+metadata:
+  name: grpc-web-proxy
+  namespace: default
+spec:
+  parentRefs:
+    - name: gw-prod
+      sectionName: grpc
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /grpc-web
+---
+apiVersion: gateway.networking.k8s.io/v1beta1
+kind: HTTPRoute
+metadata:
+  name: orphan-http
+  namespace: default
+spec:
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /orphan
+---
+apiVersion: gateway.networking.k8s.io/v1beta1
+kind: HTTPRoute
+metadata:
+  name: multi-consumer
+  namespace: media
+spec:
+  parentRefs:
+    - name: gw-edge
+      sectionName: public
+      namespace: default
+    - name: gw-prod
+      sectionName: web-http
+      namespace: default
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /shared
+
+# ---------------- TLSRoutes (5) ----------------
+---
+apiVersion: gateway.networking.k8s.io/v1beta1
+kind: TLSRoute
+metadata:
+  name: tls-admin
+  namespace: default
+spec:
+  parentRefs:
+    - name: gw-prod
+      sectionName: web-https
+  hostnames:
+    - admin.example.com
+  rules: []
+---
+apiVersion: gateway.networking.k8s.io/v1beta1
+kind: TLSRoute
+metadata:
+  name: tls-edge-shared
+  namespace: default
+spec:
+  parentRefs:
+    - name: gw-edge
+      sectionName: secure
+  hostnames:
+    - secure.edge.example.com
+  rules: []
+---
+apiVersion: gateway.networking.k8s.io/v1beta1
+kind: TLSRoute
+metadata:
+  name: payments-mtls
+  namespace: payments
+spec:
+  parentRefs:
+    - name: gw-internal
+      sectionName: internal-tls
+  hostnames:
+    - mtls.payments.internal
+  rules: []
+---
+apiVersion: gateway.networking.k8s.io/v1beta1
+kind: TLSRoute
+metadata:
+  name: orphan-tls
+  namespace: media
+spec:
+  hostnames:
+    - orphan.media.example.com
+  rules: []
+---
+apiVersion: gateway.networking.k8s.io/v1beta1
+kind: TLSRoute
+metadata:
+  name: shared-tls
+  namespace: media
+spec:
+  parentRefs:
+    - name: gw-edge
+      sectionName: secure
+      namespace: default
+    - name: gw-prod
+      sectionName: web-https
+      namespace: default
+  hostnames:
+    - shared.media.example.com
+  rules: []
+
+# ---------------- GRPCRoutes (5) ----------------
+---
+apiVersion: gateway.networking.k8s.io/v1beta1
+kind: GRPCRoute
+metadata:
+  name: user-service
+  namespace: default
+spec:
+  parentRefs:
+    - name: gw-prod
+      sectionName: grpc
+  rules: []
+---
+apiVersion: gateway.networking.k8s.io/v1beta1
+kind: GRPCRoute
+metadata:
+  name: payment-service
+  namespace: payments
+spec:
+  parentRefs:
+    - name: gw-internal
+      sectionName: internal-tls
+  rules: []
+---
+apiVersion: gateway.networking.k8s.io/v1beta1
+kind: GRPCRoute
+metadata:
+  name: media-service
+  namespace: media
+spec:
+  parentRefs:
+    - name: gw-edge
+      sectionName: secure
+      namespace: default
+  rules: []
+---
+apiVersion: gateway.networking.k8s.io/v1beta1
+kind: GRPCRoute
+metadata:
+  name: orphan-grpc
+  namespace: default
+spec:
+  rules: []
+---
+apiVersion: gateway.networking.k8s.io/v1beta1
+kind: GRPCRoute
+metadata:
+  name: shared-grpc
+  namespace: payments
+spec:
+  parentRefs:
+    - name: gw-prod
+      sectionName: grpc
+      namespace: default
+    - name: gw-internal
+      sectionName: internal-tls
+  rules: []

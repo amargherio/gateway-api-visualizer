@@ -21,6 +21,13 @@
   let editor: monaco.editor.IStandaloneCodeEditor | null = null;
   let validationErrors: Array<{ line: number; column: number; message: string }> = [];
   let parsedObjects: { gateways: Gateway[]; routes: AnyRoute[] } = { gateways: [], routes: [] };
+  let selectedSample: 'basic' | 'multi' = 'basic';
+  // Import sample YAML files as raw text so we don't rely on fetch paths that may map to index.html
+  // Using relative paths to repo root; Vite should allow this in monorepo workspace. If not, fallback could move samples under /public.
+  // @ts-ignore - raw import query
+  import basicSample from '../../../../data/sample.yaml?raw';
+  // @ts-ignore - raw import query
+  import multiSample from '../../../../data/sample-multi-gateways.yaml?raw';
   
   const dispatch = createEventDispatcher<{
     parse: { gateways: Gateway[]; routes: AnyRoute[] };
@@ -406,36 +413,9 @@
     }
   }
 
-  export function insertSampleData() {
-    const sampleYaml = `apiVersion: gateway.networking.k8s.io/v1beta1
-kind: Gateway
-metadata:
-  name: sample-gateway
-  namespace: default
-spec:
-  gatewayClassName: example
-  listeners:
-    - name: web
-      hostname: example.com
-      port: 80
-      protocol: HTTP
----
-apiVersion: gateway.networking.k8s.io/v1beta1
-kind: HTTPRoute
-metadata:
-  name: sample-route
-  namespace: default
-spec:
-  parentRefs:
-    - name: sample-gateway
-      sectionName: web
-  rules:
-    - matches:
-        - path:
-            type: PathPrefix
-            value: /`;
-
-    setValue(sampleYaml);
+  function loadSample(name: 'basic' | 'multi') {
+    const text = name === 'basic' ? basicSample : multiSample;
+    setValue((text || '').trimStart());
   }
 </script>
 
@@ -506,16 +486,22 @@ spec:
       </div>
     </div>
     
-    <button 
-      class="btn btn-sm btn-primary" 
-      on:click={insertSampleData}
-      title="Insert sample Gateway API YAML"
-    >
-      <svg class="w-4 h-4 mr-1" fill="currentColor" viewBox="0 0 20 20">
-        <path fill-rule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clip-rule="evenodd"></path>
-      </svg>
-      Insert Sample
-    </button>
+    <div class="flex items-center gap-2">
+      <select class="select select-sm select-bordered" bind:value={selectedSample} title="Choose sample dataset">
+        <option value="basic">Basic sample</option>
+        <option value="multi">Multi-gateway (20 routes)</option>
+      </select>
+      <button 
+        class="btn btn-sm btn-primary" 
+        on:click={() => loadSample(selectedSample)}
+        title="Load selected sample YAML"
+      >
+        <svg class="w-4 h-4 mr-1" fill="currentColor" viewBox="0 0 20 20">
+          <path fill-rule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clip-rule="evenodd"></path>
+        </svg>
+        Insert Sample
+      </button>
+    </div>
   </div>
   
   <div bind:this={container} class="flex-1 min-h-0" style="width:100%;height:100%;min-height:0;">

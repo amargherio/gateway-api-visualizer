@@ -6,6 +6,10 @@
   export let elements: any[] = [];
   export let layout: CytoscapeOptions['layout'] = { name: 'breadthfirst', animate: true, animationDuration: 400 };
   export let style: CytoscapeOptions['style'] = [
+    // Node styles now use data(width) / data(height) which are computed in App.svelte's toElements()
+    // based on a heuristic (avgCharWidth * label length + padding) with min/max per node type.
+    // If multi-line or wrapped labels are desired later, insert "\n" into labels where needed
+    // and adjust the height heuristic accordingly.
     { 
       selector: 'node[type="gateway"]', 
       style: { 
@@ -16,8 +20,8 @@
         'text-halign': 'center',
         'font-size': '12px',
         'font-weight': 'bold',
-        'width': '60px',
-        'height': '40px',
+        'width': 'data(width)',
+        'height': 'data(height)',
         'shape': 'round-rectangle',
         'border-width': '2px',
         'border-color': '#0366d6'
@@ -32,8 +36,8 @@
         'text-valign': 'center',
         'text-halign': 'center',
         'font-size': '10px',
-        'width': '50px',
-        'height': '30px',
+        'width': 'data(width)',
+        'height': 'data(height)',
         'shape': 'ellipse',
         'border-width': '1px',
         'border-color': '#58a6ff'
@@ -48,8 +52,8 @@
         'text-valign': 'center',
         'text-halign': 'center',
         'font-size': '10px',
-        'width': '40px',
-        'height': '25px',
+        'width': 'data(width)',
+        'height': 'data(height)',
         'shape': 'rectangle',
         'border-width': '1px',
         'border-color': '#8b949e'

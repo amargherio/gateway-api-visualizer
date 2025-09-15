@@ -38,7 +38,12 @@ Web UI runs on :5173. Paste / edit YAML in the left panel and the graph updates 
 
 ## Sample YAML
 
-See `data/sample.yaml` for an example with one Gateway and several routes. You can copy its contents into the editor to explore the UI.
+Examples you can copy into the editor:
+
+- `data/sample.yaml` – Minimal example with one Gateway and a few routes (includes an orphan route)
+- `data/sample-multi-gateways.yaml` – Larger scenario with 3 Gateways (multiple listeners each) and 20 routes spanning `HTTPRoute`, `TLSRoute`, and `GRPCRoute`, including multi-parent and orphaned routes to exercise coverage logic
+
+In the UI you can now use the Insert Sample dropdown to load either dataset directly without leaving the app.
 
 ## (Removed) Server Mode
 

@@ -19,7 +19,7 @@
   let selectedObject: any = null;
   let layoutName: string = 'breadthfirst';
   let layoutConfig: any = { name: layoutName, animate: true, animationDuration: 400 };
-  let sidebarOpen = true;
+  let sidebarOpen = false;
   let yamlEditor: YamlEditor;
   let yamlErrors: Array<{ line: number; column: number; message: string }> = [];
 
@@ -60,7 +60,26 @@
 
   function toElements(g: CoverageGraph) {
     const { nodes, edges } = applyFilters(g);
-    const n = nodes.map(n => ({ data: { id: n.id, label: n.label, type: n.type } }));
+    // Dynamic sizing heuristic so labels are not clipped. We approximate text width
+    // by character count * an average char width (dependent on font size) plus padding.
+    function sizeFor(node: typeof nodes[number]) {
+      const label = node.label || '';
+      // Font sizes match Graph.svelte style definitions
+      const fontSize = node.type === 'gateway' ? 12 : 10; // px
+      const avgChar = fontSize * 0.6; // heuristic average glyph width
+      const baseWidth = label.length * avgChar;
+      const horizontalPadding = 16; // total (left+right)
+      const minWidths = { gateway: 60, listener: 55, route: 50 } as const;
+      const maxWidth = 240;
+      const width = Math.min(Math.max(baseWidth + horizontalPadding, minWidths[node.type]), maxWidth);
+      const baseHeights = { gateway: 40, listener: 34, route: 28 } as const;
+      const height = baseHeights[node.type];
+      return { width, height };
+    }
+    const n = nodes.map(n => {
+      const { width, height } = sizeFor(n);
+      return { data: { id: n.id, label: n.label, type: n.type, width, height } };
+    });
     const e = edges.map(e => ({ data: { id: e.id, source: e.source, target: e.target, type: e.type } }));
     return [...n, ...e];
   }
@@ -143,7 +162,8 @@
     </div>
   </header>
   <!-- Main Content -->
-  <main class="container mx-auto p-4 max-w-7xl flex-1 w-full flex flex-col min-h-0">
+  <!-- Updated width: use 80% of viewport on medium+ screens, full width on small screens -->
+  <main class="mx-auto p-4 flex-1 flex flex-col min-h-0 w-full md:w-[80vw]">
       <!-- YAML Editor + Graph Mode (single mode) -->
       {#if graph}
         <!-- Summary Stats -->
@@ -313,6 +333,9 @@
             </div>
             
             <div class="flex-1 relative min-h-0 min-w-0 overflow-hidden">
+              {#if !sidebarOpen && graph && elements.length > 0}
+                <button class="lg:hidden btn btn-xs btn-outline absolute top-2 right-2 z-20" on:click={() => sidebarOpen = true}>Details</button>
+              {/if}
               {#if graph && elements.length > 0}
                 <Graph elements={elements} layout={layoutConfig} on:select={onSelect} />
               {:else}
@@ -339,9 +362,6 @@
           <DetailsSidebar bind:open={sidebarOpen} selected={selectedObject} on:close={closeSidebar} />
         </div>
         <!-- Toggle button for mobile when closed -->
-        {#if !sidebarOpen}
-          <button class="lg:hidden btn btn-sm btn-outline absolute top-3 right-3 z-10" on:click={() => sidebarOpen = true}>Details</button>
-        {/if}
       </div>
 
       <!-- Route Coverage Table (editor mode) -->
