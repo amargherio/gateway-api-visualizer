@@ -9,11 +9,6 @@ Visualize relationships between Kubernetes Gateway API `Gateway` and route resou
 - Builds a coverage graph: which routes are attached to which gateways/listeners
 - Real-time visualization + coverage table as you type
 - Light/Dark theme toggle
-- Basic test coverage for graph builder logic
-
-## Project Layout (flattened)
-
-The project has been fully flattened. All source now resides under `src/` at the repository root. Former workspace packages were consolidated; shared types + coverage graph builder live in `src/lib/shared.ts`.
 
 ```text
 src/
@@ -52,11 +47,7 @@ Examples you can copy into the editor:
 - `data/sample.yaml` – Minimal example with one Gateway and a few routes (includes an orphan route)
 - `data/sample-multi-gateways.yaml` – Larger scenario with 3 Gateways (multiple listeners each) and 20 routes spanning `HTTPRoute`, `TLSRoute`, and `GRPCRoute`, including multi-parent and orphaned routes to exercise coverage logic
 
-In the UI you can now use the Insert Sample dropdown to load either dataset directly without leaving the app.
-
-## (Removed) Server Mode
-
-Earlier versions included a backend (REST endpoints + SSE streaming + file watcher). All of that has been removed; the app is now 100% client-side.
+In the UI you can use the Insert Sample dropdown to load either dataset directly without leaving the app.
 
 ## Coverage Graph Schema
 
@@ -94,18 +85,7 @@ If you fork the repo:
 1. Enable Pages: Settings -> Pages -> Source: GitHub Actions
 2. Ensure the repository name matches the `REPO` constant in `vite.config.ts` (used to set the base path). If you change it, update that constant accordingly.
 3. Push to `main` or run the workflow manually.
-
-## Docker
-
-No longer required (server removed).
-
-## Roadmap / Ideas
-
-- Optional: reintroduce pluggable data sources (cluster watch, file watcher) behind a data provider abstraction
-- Export graph as PNG / JSON
-- Improved route detail sidebar
-- Accessibility enhancements
  
 ## License
 
-MIT
+[MIT](LICENSE.md)
