@@ -214,7 +214,7 @@ export function buildFullGraph(params: {
       if (g.metadata.namespace !== toNs) return false; // grant lives in target namespace
       const toMatch = g.spec.to.some(t => t.kind === kind && (!t.name || t.name === name));
       if (!toMatch) return false;
-      return g.spec.from.some(f => f.kind === 'HTTPRoute' || f.kind === kind ? f.namespace === fromNs : f.namespace === fromNs); // simplistic match
+      return g.spec.from.some(f => f.namespace === fromNs); // simplistic match
     });
   }
 

@@ -33,7 +33,7 @@
   } = { gateways: [], routes: [], services: [], deployments: [], statefulSets: [], daemonSets: [], gatewayClasses: [], referenceGrants: [] };
   let selectedSample: 'basic' | 'multi' = 'basic';
   let secretDetected: { reasons: string[] } | null = null; // if secrets suspected, editor cleared
-  let debounceHandle: number | null = null;
+  let debounceHandle: ReturnType<typeof setTimeout> | null = null;
   const DEBOUNCE_MS = 350; // adjust as needed for responsiveness vs load
   const FOCUS_COOLDOWN_MS = 250; // window after refocus during which we ensure only one validation
   let lastFocusTime = 0;
