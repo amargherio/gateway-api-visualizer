@@ -2,9 +2,9 @@
   import Graph from './lib/Graph.svelte';
   import YamlEditor from './lib/YamlEditor.svelte';
   import ThemeToggle from './lib/ThemeToggle.svelte';
-  import { theme } from './lib/theme';
-  import type { CoverageGraph, Gateway, AnyRoute } from './lib/shared';
-  import { buildCoverageGraph } from './lib/shared';
+  import { theme } from './lib/theme.js';
+  import type { CoverageGraph, Gateway, AnyRoute, Service, Deployment, StatefulSet, DaemonSet, GatewayClass, ReferenceGrant, GraphNode, GraphEdge, RouteCoverageDetail } from './lib/shared.js';
+  import { buildCoverageGraph, buildFullGraph } from './lib/shared.js';
   import { onMount } from 'svelte';
   import DetailsSidebar from './lib/components/DetailsSidebar.svelte';
 
@@ -35,7 +35,7 @@
   function applyFilters(g: CoverageGraph) {
     const allowedRouteIds = new Set(
       g.routeCoverage
-        .filter(rc => {
+        .filter((rc: RouteCoverageDetail) => {
           if (filterKind !== 'ALL' && rc.kind !== filterKind) return false;
           if (filterCoverage === 'COVERED' && !rc.covered) return false;
             if (filterCoverage === 'UNCOVERED' && rc.covered) return false;
@@ -45,16 +45,31 @@
           }
           return true;
         })
-        .map(rc => rc.id)
+        .map((rc: RouteCoverageDetail) => rc.id)
     );
 
-    const nodes = g.nodes.filter(n => {
-      if (n.type === 'route') return allowedRouteIds.has(n.id);
-      if (!searchTerm) return true;
-      return n.label.toLowerCase().includes(searchTerm.toLowerCase());
-    });
-    const nodeIds = new Set(nodes.map(n => n.id));
-    const edges = g.edges.filter(e => nodeIds.has(e.source) && nodeIds.has(e.target));
+      const nodes = g.nodes.filter((n: GraphNode) => {
+        if (filterKind === 'ALL') {
+          if (!searchTerm) return true;
+          return n.label.toLowerCase().includes(searchTerm.toLowerCase());
+        }
+        if (['HTTPRoute','TLSRoute','TCPRoute','GRPCRoute'].includes(filterKind)) {
+          if (n.type === 'route') {
+            // Only show routes of the selected kind
+            const rc = g.routeCoverage.find(r => r.id === n.id);
+            return rc?.kind === filterKind;
+          }
+          return false;
+        }
+        // For new node types
+        if (n.type === filterKind) {
+          if (!searchTerm) return true;
+          return n.label.toLowerCase().includes(searchTerm.toLowerCase());
+        }
+        return false;
+      });
+    const nodeIds = new Set(nodes.map((n: GraphNode) => n.id));
+    const edges = g.edges.filter((e: GraphEdge) => nodeIds.has(e.source) && nodeIds.has(e.target));
     return { nodes, edges };
   }
 
@@ -64,33 +79,32 @@
     // by character count * an average char width (dependent on font size) plus padding.
     function sizeFor(node: typeof nodes[number]) {
       const label = node.label || '';
-      // Font sizes match Graph.svelte style definitions
-      const fontSize = node.type === 'gateway' ? 12 : 10; // px
-      const avgChar = fontSize * 0.6; // heuristic average glyph width
+      const fontSize = node.type === 'gateway' ? 12 : 10; // simple rule
+      const avgChar = fontSize * 0.6;
       const baseWidth = label.length * avgChar;
-      const horizontalPadding = 16; // total (left+right)
-      const minWidths = { gateway: 60, listener: 55, route: 50 } as const;
+      const horizontalPadding = 16;
+      const minWidths: Record<string, number> = { gateway: 60, listener: 55, route: 50, gatewayclass: 60, service: 55, workload: 55, referencegrant: 70 };
       const maxWidth = 240;
-      const width = Math.min(Math.max(baseWidth + horizontalPadding, minWidths[node.type]), maxWidth);
-      const baseHeights = { gateway: 40, listener: 34, route: 28 } as const;
-      const height = baseHeights[node.type];
+      const width = Math.min(Math.max(baseWidth + horizontalPadding, minWidths[node.type] || 50), maxWidth);
+      const baseHeights: Record<string, number> = { gateway: 40, listener: 34, route: 28, gatewayclass: 34, service: 32, workload: 32, referencegrant: 34 };
+      const height = baseHeights[node.type] || 30;
       return { width, height };
     }
-    const n = nodes.map(n => {
+    const n = nodes.map((n: GraphNode) => {
       const { width, height } = sizeFor(n);
       return { data: { id: n.id, label: n.label, type: n.type, width, height } };
     });
-    const e = edges.map(e => ({ data: { id: e.id, source: e.source, target: e.target, type: e.type } }));
+    const e = edges.map((e: GraphEdge) => ({ data: { id: e.id, source: e.source, target: e.target, type: e.type } }));
     return [...n, ...e];
   }
 
   // Removed: fetchGraph/connectSSE (API mode deprecated)
 
-  function onYamlParse(event: CustomEvent<{ gateways: Gateway[]; routes: AnyRoute[] }>) {
-    const { gateways, routes } = event.detail;
+  function onYamlParse(event: CustomEvent<{ gateways: Gateway[]; routes: AnyRoute[]; services: Service[]; deployments: Deployment[]; statefulSets: StatefulSet[]; daemonSets: DaemonSet[]; gatewayClasses: GatewayClass[]; referenceGrants: ReferenceGrant[];}>) {
+    const { gateways, routes, services, deployments, statefulSets, daemonSets, gatewayClasses, referenceGrants } = event.detail;
     yamlErrors = [];
     try {
-      graph = buildCoverageGraph(gateways, routes);
+      graph = buildFullGraph({ gateways, routes, services, deployments, statefulSets, daemonSets, gatewayClasses, referenceGrants });
       elements = toElements(graph);
     } catch (error: any) {
       console.error('Error building graph:', error);
@@ -126,18 +140,18 @@
     if (!target) return;
     selectedId = target.id();
     if (!graph) return;
-    selectedObject = findObject(selectedId, graph);
+    if (selectedId) selectedObject = findObject(selectedId, graph);
   }
 
   function findObject(id: string, g: CoverageGraph): any {
     // Try route coverage objects first
-    const rc = g.routeCoverage.find(r => r.id === id);
+  const rc = g.routeCoverage.find((r: RouteCoverageDetail) => r.id === id);
     if (rc) return rc;
     // Then a node by id
-    const node = g.nodes.find(n => n.id === id);
+  const node = g.nodes.find((n: GraphNode) => n.id === id);
     if (node) return node;
     // Finally an edge
-    const edge = g.edges.find(e => e.id === id);
+  const edge = g.edges.find((e: GraphEdge) => e.id === id);
     if (edge) return edge;
     return null;
   }

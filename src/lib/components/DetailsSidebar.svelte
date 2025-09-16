@@ -20,6 +20,27 @@
   </div>
   <div class="flex-1 overflow-auto p-3 text-xs">
     {#if selected}
+      {#if selected.backendRefs}
+        <div class="mb-2">
+          <div class="font-semibold">BackendRefs:</div>
+          <table class="table table-xs w-full">
+            <thead>
+              <tr><th>Service</th><th>Namespace</th><th>Resolved</th><th>Cross-NS</th><th>Grant</th></tr>
+            </thead>
+            <tbody>
+              {#each selected.backendRefs as br}
+                <tr>
+                  <td>{br.service}</td>
+                  <td>{br.namespace}</td>
+                  <td>{br.resolved ? '✅' : '❌'}</td>
+                  <td>{br.crossNamespace ? 'Yes' : 'No'}</td>
+                  <td>{br.crossNamespace ? (br.granted ? '✅' : '❌') : '-'}</td>
+                </tr>
+              {/each}
+            </tbody>
+          </table>
+        </div>
+      {/if}
       <pre class="whitespace-pre-wrap"><code>{JSON.stringify(selected, null, 2)}</code></pre>
     {:else}
       <div class="text-base-content/60">No selection</div>

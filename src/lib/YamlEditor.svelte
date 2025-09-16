@@ -11,7 +11,7 @@
   // Track current detected language for UI badge
   let currentLanguage: 'YAML' | 'JSON' = 'YAML';
   import * as yaml from 'js-yaml';
-  import type { Gateway, AnyRoute } from './shared';
+  import type { Gateway, AnyRoute, Service, Deployment, StatefulSet, DaemonSet, GatewayClass, ReferenceGrant } from './shared.js';
 
   export let initialValue: string = '';
   // height prop no longer used externally; removed to silence unused export warning
@@ -20,8 +20,19 @@
   let resizeObserver: ResizeObserver | null = null;
   let editor: monaco.editor.IStandaloneCodeEditor | null = null;
   let validationErrors: Array<{ line: number; column: number; message: string }> = [];
-  let parsedObjects: { gateways: Gateway[]; routes: AnyRoute[] } = { gateways: [], routes: [] };
+  let parsedObjects: { 
+    gateways: Gateway[]; 
+    routes: AnyRoute[]; 
+    services: Service[]; 
+    deployments: Deployment[]; 
+    statefulSets: StatefulSet[]; 
+    daemonSets: DaemonSet[]; 
+    gatewayClasses: GatewayClass[];
+    referenceGrants: ReferenceGrant[];
+  } = { gateways: [], routes: [], services: [], deployments: [], statefulSets: [], daemonSets: [], gatewayClasses: [], referenceGrants: [] };
   let selectedSample: 'basic' | 'multi' = 'basic';
+  // Collapsible error panel state
+  let errorsExpanded = false;
   // Import sample YAML files as raw text so we don't rely on fetch paths that may map to index.html
   // Using relative paths to repo root; Vite should allow this in monorepo workspace. If not, fallback could move samples under /public.
   // @ts-ignore - raw import query
@@ -30,7 +41,7 @@
   import multiSample from '../../data/sample-multi-gateways.yaml?raw';
   
   const dispatch = createEventDispatcher<{
-    parse: { gateways: Gateway[]; routes: AnyRoute[] };
+    parse: typeof parsedObjects;
     error: Array<{ line: number; column: number; message: string }>;
   }>();
 
@@ -288,7 +299,7 @@
 
     const content = editor.getValue();
     validationErrors = [];
-    parsedObjects = { gateways: [], routes: [] };
+  parsedObjects = { gateways: [], routes: [], services: [], deployments: [], statefulSets: [], daemonSets: [], gatewayClasses: [], referenceGrants: [] };
 
     if (!content.trim()) {
       updateMarkers();
@@ -323,17 +334,21 @@
       for (const obj of allObjects) {
         try {
           validateKubernetesObject(obj);
-          
-          if (obj.kind === 'Gateway') {
-            parsedObjects.gateways.push(obj as Gateway);
-          } else if (['HTTPRoute', 'TLSRoute', 'TCPRoute', 'GRPCRoute'].includes(obj.kind)) {
-            parsedObjects.routes.push(obj as AnyRoute);
-          } else {
-            validationErrors.push({
-              line: 1,
-              column: 1,
-              message: `Unsupported kind: ${obj.kind}. Expected Gateway, HTTPRoute, TLSRoute, TCPRoute, or GRPCRoute.`
-            });
+          // Categorize supported kinds; silently ignore unsupported kinds per requirements
+          switch (obj.kind) {
+            case 'Gateway': parsedObjects.gateways.push(obj as Gateway); break;
+            case 'HTTPRoute':
+            case 'TLSRoute':
+            case 'TCPRoute':
+            case 'GRPCRoute':
+              parsedObjects.routes.push(obj as AnyRoute); break;
+            case 'Service': parsedObjects.services.push(obj as Service); break;
+            case 'Deployment': parsedObjects.deployments.push(obj as Deployment); break;
+            case 'StatefulSet': parsedObjects.statefulSets.push(obj as StatefulSet); break;
+            case 'DaemonSet': parsedObjects.daemonSets.push(obj as DaemonSet); break;
+            case 'GatewayClass': parsedObjects.gatewayClasses.push(obj as GatewayClass); break;
+            case 'ReferenceGrant': parsedObjects.referenceGrants.push(obj as ReferenceGrant); break;
+            default: /* ignore unsupported */ break;
           }
         } catch (validationError: any) {
           validationErrors.push({
@@ -417,6 +432,18 @@
   function loadSample(name: 'basic' | 'multi') {
     const text = name === 'basic' ? basicSample : multiSample;
     setValue((text || '').trimStart());
+  }
+
+  function gotoLine(line: number) {
+    if (!editor) return;
+    editor.revealLineInCenter(line);
+    editor.setPosition({ lineNumber: line, column: 1 });
+    editor.focus();
+  }
+
+  // Automatically expand error panel when new errors appear
+  $: if (validationErrors.length > 0 && !errorsExpanded) {
+    errorsExpanded = true;
   }
 </script>
 
@@ -504,6 +531,23 @@
       </button>
     </div>
   </div>
+  {#if validationErrors.length > 0}
+    <div class="border-b border-error/30 bg-error/5">
+      <button type="button" class="w-full flex items-center justify-between px-4 py-2 text-error font-medium text-left hover:bg-error/10 focus:outline-none" on:click={() => errorsExpanded = !errorsExpanded} aria-expanded={errorsExpanded} aria-controls="yaml-error-panel">
+        <span>{validationErrors.length} YAML error{validationErrors.length !== 1 ? 's' : ''}</span>
+        <svg class="w-4 h-4 transform transition-transform {errorsExpanded ? 'rotate-90' : ''}" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M6 6a1 1 0 011.707-.707l6 6a1 1 0 01-1.414 1.414l-6-6A.997.997 0 016 6z" clip-rule="evenodd"/></svg>
+      </button>
+      {#if errorsExpanded}
+        <ul id="yaml-error-panel" class="max-h-48 overflow-auto divide-y divide-error/20 text-sm">
+          {#each validationErrors as err, i}
+            <li class="px-4 py-2 cursor-pointer hover:bg-error/10" on:click={() => gotoLine(err.line)}>
+              <span class="font-mono text-xs mr-2">Ln {err.line}</span>{err.message}
+            </li>
+          {/each}
+        </ul>
+      {/if}
+    </div>
+  {/if}
   
   <div bind:this={container} class="flex-1 min-h-0" style="width:100%;height:100%;min-height:0;">
   </div>
