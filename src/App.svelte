@@ -7,6 +7,7 @@
   import { buildCoverageGraph, buildFullGraph } from './lib/shared.js';
   import { onMount } from 'svelte';
   import DetailsSidebar from './lib/components/DetailsSidebar.svelte';
+  import RouteCoverageTable from './lib/RouteCoverageTable.svelte';
 
   // Single-mode UI (editor + visualization). API mode removed.
   let graph: CoverageGraph | null = null;
@@ -22,6 +23,7 @@
   let sidebarOpen = false;
   let yamlEditor: YamlEditor;
   let yamlErrors: Array<{ line: number; column: number; message: string }> = [];
+  let tableSelectedRouteId: string | null = null; // for syncing selection from table to graph
 
   // Initialize theme
   onMount(() => {
@@ -134,6 +136,7 @@
       refreshFilters();
     }, 250);
   }
+
 
   function onSelect(evt: CustomEvent) {
     const target = evt.detail?.target || evt.detail?.cyTarget;
@@ -351,7 +354,7 @@
                 <button class="lg:hidden btn btn-xs btn-outline absolute top-2 right-2 z-20" on:click={() => sidebarOpen = true}>Details</button>
               {/if}
               {#if graph && elements.length > 0}
-                <Graph elements={elements} layout={layoutConfig} on:select={onSelect} />
+                <Graph elements={elements} layout={layoutConfig} on:select={onSelect} externalSelect={tableSelectedRouteId} />
               {:else}
                 <div class="flex items-center justify-center h-full">
                   <div class="text-center">
@@ -378,43 +381,16 @@
         <!-- Toggle button for mobile when closed -->
       </div>
 
-      <!-- Route Coverage Table (editor mode) -->
       {#if graph}
-        <div class="card bg-base-200 shadow-lg my-6">
-          <div class="card-body">
-            <h2 class="card-title mb-4">📋 Route Coverage</h2>
-            <div class="overflow-x-auto">
-              <table class="table table-zebra w-full">
-                <thead>
-                  <tr>
-                    <th>Namespace</th>
-                    <th>Name</th>
-                    <th>Status</th>
-                    <th>Parents</th>
-                    <th>Missing</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {#each graph.routeCoverage as rc}
-                    <tr>
-                      <td class="font-mono text-sm">{rc.namespace}</td>
-                      <td class="font-mono text-sm">{rc.name}</td>
-                      <td>
-                        {#if rc.covered}
-                          <div class="badge badge-success">Covered</div>
-                        {:else}
-                          <div class="badge badge-error">Uncovered</div>
-                        {/if}
-                      </td>
-                      <td class="text-sm">{rc.parentRefs.join(', ')}</td>
-                      <td class="text-sm text-error">{rc.missingParentRefs ? rc.missingParentRefs.map(m => m.name).join(', ') : ''}</td>
-                    </tr>
-                  {/each}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
+        <RouteCoverageTable rows={graph.routeCoverage} on:routeSelect={(e) => {
+          tableSelectedRouteId = e.detail.id;
+          // update selection context
+          const id = e.detail.id;
+          if (graph) {
+            selectedId = id;
+            selectedObject = findObject(id, graph);
+          }
+        }} />
       {/if}
       
     

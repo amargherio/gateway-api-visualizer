@@ -10,6 +10,13 @@ Visualize relationships between Kubernetes Gateway API `Gateway` and route resou
 - Real-time visualization + coverage table as you type
 - Light/Dark theme toggle
 - Basic test coverage for graph builder logic
+- Enhanced Route Coverage table:
+  - Sort by Namespace or Name (click header toggles asc/desc)
+  - Filter by coverage (All / Covered / Uncovered)
+  - Search by name or namespace (debounced)
+  - Automatic pagination > 20 rows; selectable sizes (20, 50, 100, All)
+  - Encapsulated in `RouteCoverageTable.svelte` for reuse & testability
+  - Click a row to focus & highlight the corresponding route node in the graph
 
 ## Project Layout (flattened)
 

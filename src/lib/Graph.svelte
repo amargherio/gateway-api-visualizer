@@ -4,6 +4,8 @@
   import type { Core, CytoscapeOptions } from 'cytoscape';
 
   export let elements: any[] = [];
+  // When this prop changes to a node id, we programmatically select that node
+  export let externalSelect: string | null = null;
   export let layout: CytoscapeOptions['layout'] = { name: 'breadthfirst', animate: true, animationDuration: 400 };
   export let style: CytoscapeOptions['style'] = [
     // Node styles now use data(width) / data(height) which are computed in App.svelte's toElements()
@@ -211,6 +213,17 @@
     cy.json({ elements });
     const l = cy.layout(layout || { name: 'breadthfirst', animate: true });
     l.run();
+  }
+
+  // React to external selection requests
+  $: if (cy && externalSelect) {
+    const node = cy.getElementById(externalSelect);
+    if (node && node.nonempty()) {
+      cy.elements().removeClass('selected');
+      node.addClass('selected');
+      // center & highlight
+      cy.animate({ center: { eles: node }, duration: 300 });
+    }
   }
 </script>
 
