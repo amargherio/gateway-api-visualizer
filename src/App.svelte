@@ -2,11 +2,12 @@
   import Graph from './lib/Graph.svelte';
   import YamlEditor from './lib/YamlEditor.svelte';
   import ThemeToggle from './lib/ThemeToggle.svelte';
-  import { theme } from './lib/theme';
-  import type { CoverageGraph, Gateway, AnyRoute } from './lib/shared';
-  import { buildCoverageGraph } from './lib/shared';
+  import { theme } from './lib/theme.js';
+  import type { CoverageGraph, Gateway, AnyRoute, Service, Deployment, StatefulSet, DaemonSet, GatewayClass, ReferenceGrant, GraphNode, GraphEdge, RouteCoverageDetail } from './lib/shared.js';
+  import { buildCoverageGraph, buildFullGraph } from './lib/shared.js';
   import { onMount } from 'svelte';
   import DetailsSidebar from './lib/components/DetailsSidebar.svelte';
+  import RouteCoverageTable from './lib/RouteCoverageTable.svelte';
 
   // Single-mode UI (editor + visualization). API mode removed.
   let graph: CoverageGraph | null = null;
@@ -22,6 +23,17 @@
   let sidebarOpen = false;
   let yamlEditor: YamlEditor;
   let yamlErrors: Array<{ line: number; column: number; message: string }> = [];
+  let tableSelectedRouteId: string | null = null; // for syncing selection from table to graph
+
+  // Raw Kubernetes resources for mapping selections to original YAML objects
+  let rawGateways: Gateway[] = [];
+  let rawRoutes: AnyRoute[] = [];
+  let rawServices: Service[] = [];
+  let rawDeployments: Deployment[] = [];
+  let rawStatefulSets: StatefulSet[] = [];
+  let rawDaemonSets: DaemonSet[] = [];
+  let rawGatewayClasses: GatewayClass[] = [];
+  let rawReferenceGrants: ReferenceGrant[] = [];
 
   // Initialize theme
   onMount(() => {
@@ -35,7 +47,7 @@
   function applyFilters(g: CoverageGraph) {
     const allowedRouteIds = new Set(
       g.routeCoverage
-        .filter(rc => {
+        .filter((rc: RouteCoverageDetail) => {
           if (filterKind !== 'ALL' && rc.kind !== filterKind) return false;
           if (filterCoverage === 'COVERED' && !rc.covered) return false;
             if (filterCoverage === 'UNCOVERED' && rc.covered) return false;
@@ -45,16 +57,31 @@
           }
           return true;
         })
-        .map(rc => rc.id)
+        .map((rc: RouteCoverageDetail) => rc.id)
     );
 
-    const nodes = g.nodes.filter(n => {
-      if (n.type === 'route') return allowedRouteIds.has(n.id);
-      if (!searchTerm) return true;
-      return n.label.toLowerCase().includes(searchTerm.toLowerCase());
-    });
-    const nodeIds = new Set(nodes.map(n => n.id));
-    const edges = g.edges.filter(e => nodeIds.has(e.source) && nodeIds.has(e.target));
+      const nodes = g.nodes.filter((n: GraphNode) => {
+        if (filterKind === 'ALL') {
+          if (!searchTerm) return true;
+          return n.label.toLowerCase().includes(searchTerm.toLowerCase());
+        }
+        if (['HTTPRoute','TLSRoute','TCPRoute','GRPCRoute'].includes(filterKind)) {
+          if (n.type === 'route') {
+            // Only show routes of the selected kind
+            const rc = g.routeCoverage.find(r => r.id === n.id);
+            return rc?.kind === filterKind;
+          }
+          return false;
+        }
+        // For new node types
+        if (n.type === filterKind) {
+          if (!searchTerm) return true;
+          return n.label.toLowerCase().includes(searchTerm.toLowerCase());
+        }
+        return false;
+      });
+    const nodeIds = new Set(nodes.map((n: GraphNode) => n.id));
+    const edges = g.edges.filter((e: GraphEdge) => nodeIds.has(e.source) && nodeIds.has(e.target));
     return { nodes, edges };
   }
 
@@ -64,33 +91,40 @@
     // by character count * an average char width (dependent on font size) plus padding.
     function sizeFor(node: typeof nodes[number]) {
       const label = node.label || '';
-      // Font sizes match Graph.svelte style definitions
-      const fontSize = node.type === 'gateway' ? 12 : 10; // px
-      const avgChar = fontSize * 0.6; // heuristic average glyph width
+      const fontSize = node.type === 'gateway' ? 12 : 10; // simple rule
+      const avgChar = fontSize * 0.6;
       const baseWidth = label.length * avgChar;
-      const horizontalPadding = 16; // total (left+right)
-      const minWidths = { gateway: 60, listener: 55, route: 50 } as const;
+      const horizontalPadding = 16;
+      const minWidths: Record<string, number> = { gateway: 60, listener: 55, route: 50, gatewayclass: 60, service: 55, workload: 55, referencegrant: 70 };
       const maxWidth = 240;
-      const width = Math.min(Math.max(baseWidth + horizontalPadding, minWidths[node.type]), maxWidth);
-      const baseHeights = { gateway: 40, listener: 34, route: 28 } as const;
-      const height = baseHeights[node.type];
+      const width = Math.min(Math.max(baseWidth + horizontalPadding, minWidths[node.type] || 50), maxWidth);
+      const baseHeights: Record<string, number> = { gateway: 40, listener: 34, route: 28, gatewayclass: 34, service: 32, workload: 32, referencegrant: 34 };
+      const height = baseHeights[node.type] || 30;
       return { width, height };
     }
-    const n = nodes.map(n => {
+    const n = nodes.map((n: GraphNode) => {
       const { width, height } = sizeFor(n);
       return { data: { id: n.id, label: n.label, type: n.type, width, height } };
     });
-    const e = edges.map(e => ({ data: { id: e.id, source: e.source, target: e.target, type: e.type } }));
+    const e = edges.map((e: GraphEdge) => ({ data: { id: e.id, source: e.source, target: e.target, type: e.type } }));
     return [...n, ...e];
   }
 
   // Removed: fetchGraph/connectSSE (API mode deprecated)
 
-  function onYamlParse(event: CustomEvent<{ gateways: Gateway[]; routes: AnyRoute[] }>) {
-    const { gateways, routes } = event.detail;
+  function onYamlParse(event: CustomEvent<{ gateways: Gateway[]; routes: AnyRoute[]; services: Service[]; deployments: Deployment[]; statefulSets: StatefulSet[]; daemonSets: DaemonSet[]; gatewayClasses: GatewayClass[]; referenceGrants: ReferenceGrant[];}>) {
+    const { gateways, routes, services, deployments, statefulSets, daemonSets, gatewayClasses, referenceGrants } = event.detail;
+    rawGateways = gateways;
+    rawRoutes = routes;
+    rawServices = services;
+    rawDeployments = deployments;
+    rawStatefulSets = statefulSets;
+    rawDaemonSets = daemonSets;
+    rawGatewayClasses = gatewayClasses;
+    rawReferenceGrants = referenceGrants;
     yamlErrors = [];
     try {
-      graph = buildCoverageGraph(gateways, routes);
+      graph = buildFullGraph({ gateways, routes, services, deployments, statefulSets, daemonSets, gatewayClasses, referenceGrants });
       elements = toElements(graph);
     } catch (error: any) {
       console.error('Error building graph:', error);
@@ -121,25 +155,70 @@
     }, 250);
   }
 
+
   function onSelect(evt: CustomEvent) {
     const target = evt.detail?.target || evt.detail?.cyTarget;
     if (!target) return;
     selectedId = target.id();
     if (!graph) return;
-    selectedObject = findObject(selectedId, graph);
+    if (selectedId) selectedObject = findObject(selectedId, graph);
   }
 
   function findObject(id: string, g: CoverageGraph): any {
-    // Try route coverage objects first
-    const rc = g.routeCoverage.find(r => r.id === id);
-    if (rc) return rc;
-    // Then a node by id
-    const node = g.nodes.find(n => n.id === id);
-    if (node) return node;
-    // Finally an edge
-    const edge = g.edges.find(e => e.id === id);
-    if (edge) return edge;
-    return null;
+    function originalFor(targetId: string): any | null {
+      if (targetId.startsWith('route:')) {
+        const [, rest] = targetId.split(':');
+        const [ns, name] = rest.split('/');
+        return rawRoutes.find(r => (r.metadata.namespace || 'default') === ns && r.metadata.name === name) || null;
+      }
+      if (targetId.startsWith('gateway:')) {
+        const base = targetId.split(':listener:')[0];
+        const [, rest] = base.split(':');
+        const [ns, name] = rest.split('/');
+        return rawGateways.find(r => (r.metadata.namespace || 'default') === ns && r.metadata.name === name) || null;
+      }
+      if (targetId.startsWith('service:')) {
+        const [, rest] = targetId.split(':');
+        const [ns, name] = rest.split('/');
+        return rawServices.find(s => (s.metadata.namespace || 'default') === ns && s.metadata.name === name) || null;
+      }
+      if (targetId.startsWith('gatewayclass:')) {
+        const [, name] = targetId.split(':');
+        return rawGatewayClasses.find(gc => gc.metadata.name === name) || null;
+      }
+      if (targetId.startsWith('workload:')) {
+        // workload:ns/kindlower:name
+        const withoutPrefix = targetId.replace('workload:', '');
+        const firstColon = withoutPrefix.indexOf(':');
+        if (firstColon !== -1) {
+          const left = withoutPrefix.slice(0, firstColon); // ns/kindlower
+          const resourceName = withoutPrefix.slice(firstColon + 1);
+          const [ns, kindLower] = left.split('/');
+          const kind = (kindLower || '').toLowerCase();
+          if (kind === 'deployment') return rawDeployments.find(d => (d.metadata.namespace || 'default') === ns && d.metadata.name === resourceName) || null;
+          if (kind === 'statefulset') return rawStatefulSets.find(d => (d.metadata.namespace || 'default') === ns && d.metadata.name === resourceName) || null;
+          if (kind === 'daemonset') return rawDaemonSets.find(d => (d.metadata.namespace || 'default') === ns && d.metadata.name === resourceName) || null;
+        }
+      }
+      if (targetId.startsWith('grant:')) {
+        // grant edges reference cross-namespace; original is a ReferenceGrant possibly (not directly encoded). We skip for now.
+        return null;
+      }
+      return null;
+    }
+
+    const rc = g.routeCoverage.find((r: RouteCoverageDetail) => r.id === id);
+    if (rc) {
+      const original = originalFor(id);
+      return original ? { ...rc, original } : rc;
+    }
+    const node = g.nodes.find((n: GraphNode) => n.id === id);
+    if (node) {
+      const original = originalFor(id);
+      return original ? { ...node, original } : node;
+    }
+    const edge = g.edges.find((e: GraphEdge) => e.id === id);
+    return edge || null;
   }
 
   function updateLayout() {
@@ -154,10 +233,13 @@
 
 <div class="min-h-screen flex flex-col">
   <header class="navbar bg-base-200 shadow">
-    <div class="navbar-start px-4">
-      <h1 class="text-xl font-bold">Gateway API Visualizer</h1>
+    <div class="navbar-start px-4 flex items-center gap-3">
+      <h1 class="text-xl font-bold flex items-center gap-2">
+        Gateway API Visualizer
+        <span class="badge badge-outline text-xs font-normal" title={`Version ${__APP_VERSION__} (commit ${__GIT_HASH__})`}>{__APP_VERSION__}<span class="opacity-60 ml-1">{__GIT_HASH__}</span></span>
+      </h1>
     </div>
-    <div class="navbar-end pr-4">
+    <div class="navbar-end pr-4 flex items-center gap-3">
       <ThemeToggle />
     </div>
   </header>
@@ -337,7 +419,7 @@
                 <button class="lg:hidden btn btn-xs btn-outline absolute top-2 right-2 z-20" on:click={() => sidebarOpen = true}>Details</button>
               {/if}
               {#if graph && elements.length > 0}
-                <Graph elements={elements} layout={layoutConfig} on:select={onSelect} />
+                <Graph elements={elements} layout={layoutConfig} on:select={onSelect} externalSelect={tableSelectedRouteId} />
               {:else}
                 <div class="flex items-center justify-center h-full">
                   <div class="text-center">
@@ -364,43 +446,16 @@
         <!-- Toggle button for mobile when closed -->
       </div>
 
-      <!-- Route Coverage Table (editor mode) -->
       {#if graph}
-        <div class="card bg-base-200 shadow-lg my-6">
-          <div class="card-body">
-            <h2 class="card-title mb-4">📋 Route Coverage</h2>
-            <div class="overflow-x-auto">
-              <table class="table table-zebra w-full">
-                <thead>
-                  <tr>
-                    <th>Namespace</th>
-                    <th>Name</th>
-                    <th>Status</th>
-                    <th>Parents</th>
-                    <th>Missing</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {#each graph.routeCoverage as rc}
-                    <tr>
-                      <td class="font-mono text-sm">{rc.namespace}</td>
-                      <td class="font-mono text-sm">{rc.name}</td>
-                      <td>
-                        {#if rc.covered}
-                          <div class="badge badge-success">Covered</div>
-                        {:else}
-                          <div class="badge badge-error">Uncovered</div>
-                        {/if}
-                      </td>
-                      <td class="text-sm">{rc.parentRefs.join(', ')}</td>
-                      <td class="text-sm text-error">{rc.missingParentRefs ? rc.missingParentRefs.map(m => m.name).join(', ') : ''}</td>
-                    </tr>
-                  {/each}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
+        <RouteCoverageTable rows={graph.routeCoverage} on:routeSelect={(e) => {
+          tableSelectedRouteId = e.detail.id;
+          // update selection context
+          const id = e.detail.id;
+          if (graph) {
+            selectedId = id;
+            selectedObject = findObject(id, graph);
+          }
+        }} />
       {/if}
       
     

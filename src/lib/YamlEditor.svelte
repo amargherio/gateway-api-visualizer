@@ -11,7 +11,8 @@
   // Track current detected language for UI badge
   let currentLanguage: 'YAML' | 'JSON' = 'YAML';
   import * as yaml from 'js-yaml';
-  import type { Gateway, AnyRoute } from './shared';
+  import type { Gateway, AnyRoute, Service, Deployment, StatefulSet, DaemonSet, GatewayClass, ReferenceGrant } from './shared.js';
+  import { containsPotentialSecrets } from './secretDetection.js';
 
   export let initialValue: string = '';
   // height prop no longer used externally; removed to silence unused export warning
@@ -20,8 +21,24 @@
   let resizeObserver: ResizeObserver | null = null;
   let editor: monaco.editor.IStandaloneCodeEditor | null = null;
   let validationErrors: Array<{ line: number; column: number; message: string }> = [];
-  let parsedObjects: { gateways: Gateway[]; routes: AnyRoute[] } = { gateways: [], routes: [] };
+  let parsedObjects: { 
+    gateways: Gateway[]; 
+    routes: AnyRoute[]; 
+    services: Service[]; 
+    deployments: Deployment[]; 
+    statefulSets: StatefulSet[]; 
+    daemonSets: DaemonSet[]; 
+    gatewayClasses: GatewayClass[];
+    referenceGrants: ReferenceGrant[];
+  } = { gateways: [], routes: [], services: [], deployments: [], statefulSets: [], daemonSets: [], gatewayClasses: [], referenceGrants: [] };
   let selectedSample: 'basic' | 'multi' = 'basic';
+  let secretDetected: { reasons: string[] } | null = null; // if secrets suspected, editor cleared
+  let debounceHandle: ReturnType<typeof setTimeout> | null = null;
+  const DEBOUNCE_MS = 350; // adjust as needed for responsiveness vs load
+  const FOCUS_COOLDOWN_MS = 250; // window after refocus during which we ensure only one validation
+  let lastFocusTime = 0;
+  // Collapsible error panel state
+  let errorsExpanded = false;
   // Import sample YAML files as raw text so we don't rely on fetch paths that may map to index.html
   // Using relative paths to repo root; Vite should allow this in monorepo workspace. If not, fallback could move samples under /public.
   // @ts-ignore - raw import query
@@ -30,7 +47,7 @@
   import multiSample from '../../data/sample-multi-gateways.yaml?raw';
   
   const dispatch = createEventDispatcher<{
-    parse: { gateways: Gateway[]; routes: AnyRoute[] };
+    parse: typeof parsedObjects;
     error: Array<{ line: number; column: number; message: string }>;
   }>();
 
@@ -244,10 +261,34 @@
     });
     observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
 
-    // Set up validation on content change
+    // Set up validation on content change (even if secret banner shown so we can auto-clear)
     editor.onDidChangeModelContent(() => {
+      if (debounceHandle) {
+        clearTimeout(debounceHandle);
+      }
+      const now = performance.now();
+      const sinceFocus = now - lastFocusTime;
+      const extraDelay = sinceFocus < FOCUS_COOLDOWN_MS ? (FOCUS_COOLDOWN_MS - sinceFocus) : 0;
+      debounceHandle = window.setTimeout(() => {
+        debounceHandle = null;
+        detectAndSetLanguage();
+        validateContent();
+      }, DEBOUNCE_MS + extraDelay);
+    });
+
+    // On blur, force immediate validation (flush debounce)
+    editor.onDidBlurEditorWidget(() => {
+      if (debounceHandle) {
+        clearTimeout(debounceHandle);
+        debounceHandle = null;
+      }
       detectAndSetLanguage();
       validateContent();
+    });
+
+    // Record focus time (used to extend first debounce delay)
+    editor.onDidFocusEditorWidget(() => {
+      lastFocusTime = performance.now();
     });
 
     // Initial validation
@@ -265,6 +306,10 @@
     if (editor) {
       editor.dispose();
     }
+    if (debounceHandle) {
+      clearTimeout(debounceHandle);
+      debounceHandle = null;
+    }
   });
 
   function detectAndSetLanguage() {
@@ -274,8 +319,8 @@
     const value = editor.getValue();
     const trimmed = value.trim();
     if (!trimmed) return;
-  // Detect JSON if it starts with { or [ (no escape needed for [ inside character class)
-  const isJson = /^[{[]/.test(trimmed);
+    // Detect JSON if it starts with { or [ (no escape needed for [ inside character class)
+    const isJson = /^[{[]/.test(trimmed);
     const target = isJson ? 'json' : 'yaml';
     if (model.getLanguageId() !== target) {
       monaco.editor.setModelLanguage(model, target);
@@ -284,11 +329,12 @@
   }
 
   function validateContent() {
-  if (!editor || !monaco) return;
+    if (!editor || !monaco) return;
 
     const content = editor.getValue();
+    // Do not early-return when secretDetected; we allow user to paste sanitized content which will clear the banner.
     validationErrors = [];
-    parsedObjects = { gateways: [], routes: [] };
+    parsedObjects = { gateways: [], routes: [], services: [], deployments: [], statefulSets: [], daemonSets: [], gatewayClasses: [], referenceGrants: [] };
 
     if (!content.trim()) {
       updateMarkers();
@@ -319,21 +365,47 @@
         }
       }
 
+      // Secret / credential heuristic detection BEFORE further processing
+      const secretResult = containsPotentialSecrets(content, allObjects);
+      if (secretResult) {
+        if (!secretDetected) {
+          // First time detection for this session of content; clear and show banner
+          secretDetected = secretResult;
+          editor.setValue('');
+          if (debounceHandle) { clearTimeout(debounceHandle); debounceHandle = null; }
+          validationErrors = [];
+          parsedObjects = { gateways: [], routes: [], services: [], deployments: [], statefulSets: [], daemonSets: [], gatewayClasses: [], referenceGrants: [] };
+          updateMarkers();
+          dispatch('parse', parsedObjects);
+        } else {
+          // Already flagged; replace reasons (avoid unbounded growth)
+            secretDetected = secretResult;
+        }
+        return; // stop further processing while secrets present
+      } else if (secretDetected) {
+        // Previously flagged but now clean content: auto-clear banner
+        secretDetected = null;
+      }
+
       // Validate and categorize objects
       for (const obj of allObjects) {
         try {
           validateKubernetesObject(obj);
-          
-          if (obj.kind === 'Gateway') {
-            parsedObjects.gateways.push(obj as Gateway);
-          } else if (['HTTPRoute', 'TLSRoute', 'TCPRoute', 'GRPCRoute'].includes(obj.kind)) {
-            parsedObjects.routes.push(obj as AnyRoute);
-          } else {
-            validationErrors.push({
-              line: 1,
-              column: 1,
-              message: `Unsupported kind: ${obj.kind}. Expected Gateway, HTTPRoute, TLSRoute, TCPRoute, or GRPCRoute.`
-            });
+          // Categorize supported kinds; silently ignore unsupported kinds per requirements
+          switch (obj.kind) {
+            case 'Gateway': parsedObjects.gateways.push(obj as Gateway); break;
+            case 'HTTPRoute':
+            case 'TLSRoute':
+            case 'TCPRoute':
+            case 'GRPCRoute':
+              parsedObjects.routes.push(obj as AnyRoute); break;
+            case 'Service': parsedObjects.services.push(obj as Service); break;
+            case 'Deployment': parsedObjects.deployments.push(obj as Deployment); break;
+            case 'StatefulSet': parsedObjects.statefulSets.push(obj as StatefulSet); break;
+            case 'DaemonSet': parsedObjects.daemonSets.push(obj as DaemonSet); break;
+            case 'GatewayClass': parsedObjects.gatewayClasses.push(obj as GatewayClass); break;
+            case 'ReferenceGrant': parsedObjects.referenceGrants.push(obj as ReferenceGrant); break;
+            default: /* ignore unsupported */ break;
           }
         } catch (validationError: any) {
           validationErrors.push({
@@ -416,7 +488,23 @@
 
   function loadSample(name: 'basic' | 'multi') {
     const text = name === 'basic' ? basicSample : multiSample;
+    secretDetected = null; // reset banner when loading sample
     setValue((text || '').trimStart());
+    // Trigger parse explicitly since onDidChangeModelContent fires
+    detectAndSetLanguage();
+    validateContent();
+  }
+
+  function gotoLine(line: number) {
+    if (!editor) return;
+    editor.revealLineInCenter(line);
+    editor.setPosition({ lineNumber: line, column: 1 });
+    editor.focus();
+  }
+
+  // Automatically expand error panel when new errors appear
+  $: if (validationErrors.length > 0 && !errorsExpanded) {
+    errorsExpanded = true;
   }
 </script>
 
@@ -457,6 +545,22 @@
 
 <div class="h-full flex flex-col bg-base-100 border border-base-300 rounded-lg overflow-hidden min-h-0"
   style="min-height:0;">
+  {#if secretDetected}
+    <div class="bg-warning/20 border-b border-warning text-warning-content px-4 py-3 flex flex-col gap-2">
+      <div class="font-semibold flex items-center gap-2">
+        <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20"><path d="M8.257 3.099c.765-1.36 2.72-1.36 3.485 0l6.518 11.602c.75 1.336-.213 2.999-1.742 2.999H3.48c-1.53 0-2.493-1.663-1.743-2.999L8.257 3.1zM11 14a1 1 0 10-2 0 1 1 0 002 0zm-1-2a.75.75 0 01-.75-.75v-3.5a.75.75 0 011.5 0v3.5A.75.75 0 0110 12z"/></svg>
+        Potential credentials detected; input cleared.
+      </div>
+      <div class="text-sm leading-snug">
+        Remove any secrets (passwords, tokens, private keys, Kubernetes Secrets) and paste sanitized YAML/JSON again. This banner will disappear automatically when the content no longer matches secret heuristics.
+        <ul class="list-disc ml-6 mt-1 space-y-0.5">
+          {#each secretDetected.reasons as r}
+            <li class="font-mono text-xs break-all">{r}</li>
+          {/each}
+        </ul>
+      </div>
+    </div>
+  {/if}
   <div class="flex items-center justify-between px-4 py-3 bg-base-200 border-b border-base-300">
     <div class="flex items-center gap-3">
       <span class="badge badge-sm badge-outline" title="Detected language mode">{currentLanguage}</span>
@@ -504,6 +608,23 @@
       </button>
     </div>
   </div>
+  {#if validationErrors.length > 0}
+    <div class="border-b border-error/30 bg-error/5">
+      <button type="button" class="w-full flex items-center justify-between px-4 py-2 text-error font-medium text-left hover:bg-error/10 focus:outline-none" on:click={() => errorsExpanded = !errorsExpanded} aria-expanded={errorsExpanded} aria-controls="yaml-error-panel">
+        <span>{validationErrors.length} YAML error{validationErrors.length !== 1 ? 's' : ''}</span>
+        <svg class="w-4 h-4 transform transition-transform {errorsExpanded ? 'rotate-90' : ''}" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M6 6a1 1 0 011.707-.707l6 6a1 1 0 01-1.414 1.414l-6-6A.997.997 0 016 6z" clip-rule="evenodd"/></svg>
+      </button>
+      {#if errorsExpanded}
+        <ul id="yaml-error-panel" class="max-h-48 overflow-auto divide-y divide-error/20 text-sm">
+          {#each validationErrors as err}
+            <li class="px-4 py-2 cursor-pointer hover:bg-error/10" on:click={() => gotoLine(err.line)}>
+              <span class="font-mono text-xs mr-2">Ln {err.line}</span>{err.message}
+            </li>
+          {/each}
+        </ul>
+      {/if}
+    </div>
+  {/if}
   
   <div bind:this={container} class="flex-1 min-h-0" style="width:100%;height:100%;min-height:0;">
   </div>

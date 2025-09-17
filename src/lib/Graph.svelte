@@ -4,6 +4,8 @@
   import type { Core, CytoscapeOptions } from 'cytoscape';
 
   export let elements: any[] = [];
+  // When this prop changes to a node id, we programmatically select that node
+  export let externalSelect: string | null = null;
   export let layout: CytoscapeOptions['layout'] = { name: 'breadthfirst', animate: true, animationDuration: 400 };
   export let style: CytoscapeOptions['style'] = [
     // Node styles now use data(width) / data(height) which are computed in App.svelte's toElements()
@@ -60,6 +62,70 @@
       } 
     },
     { 
+      selector: 'node[type="gatewayclass"]', 
+      style: { 
+        'background-color': '#8250df', 
+        'label': 'data(label)',
+        'color': '#fff',
+        'text-valign': 'center',
+        'text-halign': 'center',
+        'font-size': '10px',
+        'width': 'data(width)',
+        'height': 'data(height)',
+        'shape': 'round-rectangle',
+        'border-width': '1px',
+        'border-color': '#8250df'
+      }
+    },
+    { 
+      selector: 'node[type="service"]', 
+      style: { 
+        'background-color': '#1f6feb', 
+        'label': 'data(label)',
+        'color': '#fff',
+        'text-valign': 'center',
+        'text-halign': 'center',
+        'font-size': '10px',
+        'width': 'data(width)',
+        'height': 'data(height)',
+        'shape': 'hexagon',
+        'border-width': '1px',
+        'border-color': '#1f6feb'
+      }
+    },
+    { 
+      selector: 'node[type="workload"]', 
+      style: { 
+        'background-color': '#bf3989', 
+        'label': 'data(label)',
+        'color': '#fff',
+        'text-valign': 'center',
+        'text-halign': 'center',
+        'font-size': '10px',
+        'width': 'data(width)',
+        'height': 'data(height)',
+        'shape': 'round-rectangle',
+        'border-width': '1px',
+        'border-color': '#bf3989'
+      }
+    },
+    { 
+      selector: 'node[type="referencegrant"]', 
+      style: { 
+        'background-color': '#c69026', 
+        'label': 'data(label)',
+        'color': '#fff',
+        'text-valign': 'center',
+        'text-halign': 'center',
+        'font-size': '10px',
+        'width': 'data(width)',
+        'height': 'data(height)',
+        'shape': 'diamond',
+        'border-width': '1px',
+        'border-color': '#c69026'
+      }
+    },
+    { 
       selector: 'edge[type="owns"]', 
       style: { 
         'line-color': '#6e7681', 
@@ -79,6 +145,10 @@
         'curve-style': 'bezier'
       } 
     },
+    { selector: 'edge[type="class-of"]', style: { 'line-color': '#8250df', 'target-arrow-shape': 'triangle', 'target-arrow-color': '#8250df', 'width': '2px', 'curve-style': 'bezier', 'line-style': 'dashed' } },
+    { selector: 'edge[type="backend"]', style: { 'line-color': '#1f6feb', 'target-arrow-shape': 'triangle', 'target-arrow-color': '#1f6feb', 'width': '2px', 'curve-style': 'bezier' } },
+    { selector: 'edge[type="serves"]', style: { 'line-color': '#bf3989', 'target-arrow-shape': 'triangle', 'target-arrow-color': '#bf3989', 'width': '2px', 'curve-style': 'bezier' } },
+    { selector: 'edge[type="grant"]', style: { 'line-color': '#c69026', 'target-arrow-shape': 'triangle', 'target-arrow-color': '#c69026', 'width': '2px', 'curve-style': 'bezier', 'line-style': 'dotted' } },
     // Hover effects
     { 
       selector: 'node:hover', 
@@ -143,6 +213,17 @@
     cy.json({ elements });
     const l = cy.layout(layout || { name: 'breadthfirst', animate: true });
     l.run();
+  }
+
+  // React to external selection requests
+  $: if (cy && externalSelect) {
+    const node = cy.getElementById(externalSelect);
+    if (node && node.nonempty()) {
+      cy.elements().removeClass('selected');
+      node.addClass('selected');
+      // center & highlight
+      cy.animate({ center: { eles: node }, duration: 300 });
+    }
   }
 </script>
 
