@@ -546,7 +546,7 @@
 <div class="h-full flex flex-col bg-base-100 border border-base-300 rounded-lg overflow-hidden min-h-0"
   style="min-height:0;">
   {#if secretDetected}
-    <div class="bg-warning/20 border-b border-warning text-warning-content px-4 py-3 flex flex-col gap-2">
+    <div class="bg-red-600/20 border-b border-warning text-warning-content px-4 py-3 flex flex-col gap-2">
       <div class="font-semibold flex items-center gap-2">
         <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20"><path d="M8.257 3.099c.765-1.36 2.72-1.36 3.485 0l6.518 11.602c.75 1.336-.213 2.999-1.742 2.999H3.48c-1.53 0-2.493-1.663-1.743-2.999L8.257 3.1zM11 14a1 1 0 10-2 0 1 1 0 002 0zm-1-2a.75.75 0 01-.75-.75v-3.5a.75.75 0 011.5 0v3.5A.75.75 0 0110 12z"/></svg>
         Potential credentials detected; input cleared.
