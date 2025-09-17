@@ -18,6 +18,15 @@ const SUSPICIOUS_KEY_PATTERNS = [
   /auth/i
 ];
 
+// Keys that reference a secret name rather than containing secret material; should not trigger on their own
+const SECRET_REFERENCE_KEY_ALLOWLIST = new Set([
+  'secretname', // secretName
+  'secretref',
+  'secretrefname',
+  'cacertsecret',
+  'tlssecret',
+]);
+
 const PRIVATE_KEY_BLOCK = /-----BEGIN (?:RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----/;
 // Generic secret-like patterns:
 //  - AWS access key (AKIA...)
@@ -49,7 +58,8 @@ export function containsPotentialSecrets(raw: string, parsedDocs: unknown[]): Se
       return;
     }
     for (const [k, v] of Object.entries(obj as Record<string, unknown>)) {
-      if (SUSPICIOUS_KEY_PATTERNS.some(p => p.test(k))) {
+      const lowerK = k.toLowerCase();
+      if (SUSPICIOUS_KEY_PATTERNS.some(p => p.test(k)) && !SECRET_REFERENCE_KEY_ALLOWLIST.has(lowerK)) {
         // If value is non-empty string or base64-ish
         if (typeof v === 'string' && v.trim().length > 0) {
           reasons.push(`Suspicious key name: ${k}`);
@@ -58,7 +68,7 @@ export function containsPotentialSecrets(raw: string, parsedDocs: unknown[]): Se
           }
         } else if (typeof v === 'object') {
           // For Secret.data section (base64 values)
-          if (k.toLowerCase() === 'data' || k.toLowerCase() === 'stringdata') {
+          if (lowerK === 'data' || lowerK === 'stringdata') {
             reasons.push(`Possible secret data block under key: ${k}`);
           }
         }

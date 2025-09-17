@@ -261,12 +261,11 @@
     });
     observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
 
-    // Set up validation on content change
+    // Set up validation on content change (even if secret banner shown so we can auto-clear)
     editor.onDidChangeModelContent(() => {
       if (debounceHandle) {
         clearTimeout(debounceHandle);
       }
-      // If just refocused very recently (within cooldown), extend debounce so we don't double-fire
       const now = performance.now();
       const sinceFocus = now - lastFocusTime;
       const extraDelay = sinceFocus < FOCUS_COOLDOWN_MS ? (FOCUS_COOLDOWN_MS - sinceFocus) : 0;
@@ -330,14 +329,12 @@
   }
 
   function validateContent() {
-  if (!editor || !monaco) return;
+    if (!editor || !monaco) return;
 
     const content = editor.getValue();
-  // Quick exit if already flagged
-  // If previously flagged for secrets but user has now entered new content, re-run detection.
-  // We do NOT early-return here; instead we allow re-validation so the banner can clear once content is safe.
+    // Do not early-return when secretDetected; we allow user to paste sanitized content which will clear the banner.
     validationErrors = [];
-  parsedObjects = { gateways: [], routes: [], services: [], deployments: [], statefulSets: [], daemonSets: [], gatewayClasses: [], referenceGrants: [] };
+    parsedObjects = { gateways: [], routes: [], services: [], deployments: [], statefulSets: [], daemonSets: [], gatewayClasses: [], referenceGrants: [] };
 
     if (!content.trim()) {
       updateMarkers();
@@ -371,25 +368,22 @@
       // Secret / credential heuristic detection BEFORE further processing
       const secretResult = containsPotentialSecrets(content, allObjects);
       if (secretResult) {
-        // If this is a new detection (banner not shown yet), clear & show reasons
         if (!secretDetected) {
+          // First time detection for this session of content; clear and show banner
           secretDetected = secretResult;
           editor.setValue('');
-          if (editor && editor.getModel) {
-            editor.getModel()?.pushStackElement();
-          }
           if (debounceHandle) { clearTimeout(debounceHandle); debounceHandle = null; }
           validationErrors = [];
           parsedObjects = { gateways: [], routes: [], services: [], deployments: [], statefulSets: [], daemonSets: [], gatewayClasses: [], referenceGrants: [] };
           updateMarkers();
           dispatch('parse', parsedObjects);
         } else {
-          // If already flagged and user managed to add more (shouldn't happen because we clear), keep reasons unioned
-          secretDetected = { reasons: Array.from(new Set([...secretDetected.reasons, ...secretResult.reasons])) };
+          // Already flagged; replace reasons (avoid unbounded growth)
+            secretDetected = secretResult;
         }
-        return; // stop further processing when secrets detected
+        return; // stop further processing while secrets present
       } else if (secretDetected) {
-        // Previously detected secrets but current content is clean -> clear banner automatically
+        // Previously flagged but now clean content: auto-clear banner
         secretDetected = null;
       }
 
@@ -558,7 +552,7 @@
         Potential credentials detected; input cleared.
       </div>
       <div class="text-sm leading-snug">
-        Remove any secrets (passwords, tokens, private keys, Kubernetes Secrets) and paste sanitized YAML/JSON again. This warning will disappear automatically when the new content no longer matches secret heuristics. Detected indicators:
+        Remove any secrets (passwords, tokens, private keys, Kubernetes Secrets) and paste sanitized YAML/JSON again. This banner will disappear automatically when the content no longer matches secret heuristics.
         <ul class="list-disc ml-6 mt-1 space-y-0.5">
           {#each secretDetected.reasons as r}
             <li class="font-mono text-xs break-all">{r}</li>

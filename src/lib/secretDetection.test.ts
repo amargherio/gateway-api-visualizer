@@ -31,4 +31,11 @@ describe('containsPotentialSecrets', () => {
   const res = containsPotentialSecrets(raw, parsed as unknown[]);
     expect(res).toBeNull();
   });
+
+  it('does not flag secretName reference fields', () => {
+    const raw = `apiVersion: gateway.networking.k8s.io/v1beta1\nkind: Gateway\nmetadata:\n  name: gw\n  namespace: default\nspec:\n  tls:\n    certificateRefs:\n      - kind: Secret\n        name: my-cert-secret\n    secretName: my-cert-secret`; // typical reference style usage
+    const parsed = [yaml.load(raw)];
+    const res = containsPotentialSecrets(raw, parsed as unknown[]);
+    expect(res).toBeNull();
+  });
 });
