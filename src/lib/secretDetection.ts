@@ -19,7 +19,11 @@ const SUSPICIOUS_KEY_PATTERNS = [
 ];
 
 const PRIVATE_KEY_BLOCK = /-----BEGIN (?:RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----/;
-const GENERIC_SECRET_LIKE = /(AKIA[0-9A-Z]{16})|([A-Za-z0-9_-]{32,})/; // AWS style or long opaque strings
+// Generic secret-like patterns:
+//  - AWS access key (AKIA...)
+//  - Long opaque base62-ish strings (>= 40 chars)
+//  - JWT-like tokens (three base64url segments) with a minimum segment length to avoid matching ordinary dotted identifiers
+const GENERIC_SECRET_LIKE = /(AKIA[0-9A-Z]{16})|([A-Za-z0-9_-]{40,})|([A-Za-z0-9-_]{10,}\.[A-Za-z0-9-_]{10,}\.[A-Za-z0-9-_]{10,})/; // AWS style, JWT, or long opaque strings
 
 // Environment variable style FOO=bar lines with suspicious names
 const ENV_VAR_LINE = /^\s*([A-Z0-9_]{4,})=(.+)$/gm;

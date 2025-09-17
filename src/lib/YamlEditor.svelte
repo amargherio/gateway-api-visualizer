@@ -263,7 +263,6 @@
 
     // Set up validation on content change
     editor.onDidChangeModelContent(() => {
-      if (secretDetected) return; // do nothing while flagged
       if (debounceHandle) {
         clearTimeout(debounceHandle);
       }
@@ -280,7 +279,6 @@
 
     // On blur, force immediate validation (flush debounce)
     editor.onDidBlurEditorWidget(() => {
-      if (secretDetected) return;
       if (debounceHandle) {
         clearTimeout(debounceHandle);
         debounceHandle = null;
@@ -336,7 +334,8 @@
 
     const content = editor.getValue();
   // Quick exit if already flagged
-  if (secretDetected) return;
+  // If previously flagged for secrets but user has now entered new content, re-run detection.
+  // We do NOT early-return here; instead we allow re-validation so the banner can clear once content is safe.
     validationErrors = [];
   parsedObjects = { gateways: [], routes: [], services: [], deployments: [], statefulSets: [], daemonSets: [], gatewayClasses: [], referenceGrants: [] };
 
@@ -372,15 +371,26 @@
       // Secret / credential heuristic detection BEFORE further processing
       const secretResult = containsPotentialSecrets(content, allObjects);
       if (secretResult) {
-        secretDetected = secretResult;
-        // Clear editor to avoid rendering secrets in UI state
-        editor.setValue('');
-        if (debounceHandle) { clearTimeout(debounceHandle); debounceHandle = null; }
-        validationErrors = [];
-        parsedObjects = { gateways: [], routes: [], services: [], deployments: [], statefulSets: [], daemonSets: [], gatewayClasses: [], referenceGrants: [] };
-        updateMarkers();
-        dispatch('parse', parsedObjects);
-        return;
+        // If this is a new detection (banner not shown yet), clear & show reasons
+        if (!secretDetected) {
+          secretDetected = secretResult;
+          editor.setValue('');
+          if (editor && editor.getModel) {
+            editor.getModel()?.pushStackElement();
+          }
+          if (debounceHandle) { clearTimeout(debounceHandle); debounceHandle = null; }
+          validationErrors = [];
+          parsedObjects = { gateways: [], routes: [], services: [], deployments: [], statefulSets: [], daemonSets: [], gatewayClasses: [], referenceGrants: [] };
+          updateMarkers();
+          dispatch('parse', parsedObjects);
+        } else {
+          // If already flagged and user managed to add more (shouldn't happen because we clear), keep reasons unioned
+          secretDetected = { reasons: Array.from(new Set([...secretDetected.reasons, ...secretResult.reasons])) };
+        }
+        return; // stop further processing when secrets detected
+      } else if (secretDetected) {
+        // Previously detected secrets but current content is clean -> clear banner automatically
+        secretDetected = null;
       }
 
       // Validate and categorize objects
@@ -548,15 +558,12 @@
         Potential credentials detected; input cleared.
       </div>
       <div class="text-sm leading-snug">
-        Remove any secrets (passwords, tokens, private keys, Kubernetes Secrets) and paste sanitized YAML/JSON again. Detected indicators:
+        Remove any secrets (passwords, tokens, private keys, Kubernetes Secrets) and paste sanitized YAML/JSON again. This warning will disappear automatically when the new content no longer matches secret heuristics. Detected indicators:
         <ul class="list-disc ml-6 mt-1 space-y-0.5">
           {#each secretDetected.reasons as r}
             <li class="font-mono text-xs break-all">{r}</li>
           {/each}
         </ul>
-      </div>
-      <div>
-        <button class="btn btn-xs" on:click={() => { secretDetected = null; /* user can now input again */ }}>I have removed secrets</button>
       </div>
     </div>
   {/if}
