@@ -319,8 +319,8 @@
     const value = editor.getValue();
     const trimmed = value.trim();
     if (!trimmed) return;
-  // Detect JSON if it starts with { or [ (no escape needed for [ inside character class)
-  const isJson = /^[{[]/.test(trimmed);
+    // Detect JSON if it starts with { or [ (no escape needed for [ inside character class)
+    const isJson = /^[{[]/.test(trimmed);
     const target = isJson ? 'json' : 'yaml';
     if (model.getLanguageId() !== target) {
       monaco.editor.setModelLanguage(model, target);

@@ -3,26 +3,26 @@ import { containsPotentialSecrets } from './secretDetection.js';
 import * as yaml from 'js-yaml';
 
 describe('containsPotentialSecrets', () => {
-  it('detects Kubernetes Secret kind', () => {
+  it('detects Kubernetes Secret kind with context', () => {
     const raw = `apiVersion: v1\nkind: Secret\nmetadata:\n  name: mysecret\ndata:\n  password: cGFzcw==`; // base64('pass')
     const parsed = [yaml.load(raw)];
-  const res = containsPotentialSecrets(raw, parsed as unknown[]);
+    const res = containsPotentialSecrets(raw, parsed as unknown[]);
     expect(res).not.toBeNull();
-    expect(res?.reasons.some(r => r.includes('Kubernetes Secret'))).toBe(true);
+    expect(res?.reasons.some(r => r.includes('Secret/mysecret: Kubernetes Secret manifest'))).toBe(true);
   });
 
-  it('detects private key block', () => {
+  it('detects private key block (raw context)', () => {
     const raw = `-----BEGIN PRIVATE KEY-----\nABCDEF1234567890ABCDEF==\n-----END PRIVATE KEY-----`;
     const res = containsPotentialSecrets(raw, []);
     expect(res).not.toBeNull();
-    expect(res?.reasons.some(r => r.includes('Private key block'))).toBe(true);
+    expect(res?.reasons.some(r => r.includes('raw: Private key block present'))).toBe(true);
   });
 
-  it('detects suspicious env var', () => {
+  it('detects suspicious env var (raw context)', () => {
     const raw = `API_KEY=supersecretvalue`;
     const res = containsPotentialSecrets(raw, []);
     expect(res).not.toBeNull();
-    expect(res?.reasons.some(r => r.includes('environment variable'))).toBe(true);
+    expect(res?.reasons.some(r => r.includes('raw: Suspicious environment variable'))).toBe(true);
   });
 
   it('does not flag benign content', () => {
@@ -37,5 +37,15 @@ describe('containsPotentialSecrets', () => {
     const parsed = [yaml.load(raw)];
     const res = containsPotentialSecrets(raw, parsed as unknown[]);
     expect(res).toBeNull();
+  });
+
+  it('includes context for multiple resources', () => {
+    const raw = `apiVersion: v1\nkind: Secret\nmetadata:\n  name: first\n---\napiVersion: v1\nkind: Secret\nmetadata:\n  name: second`; // two secrets
+    const parsed = raw.split(/---/).map(d => yaml.load(d));
+    const res = containsPotentialSecrets(raw, parsed as unknown[]);
+    expect(res).not.toBeNull();
+    const joined = res!.reasons.join('\n');
+    expect(joined).toMatch(/Secret\/first: Kubernetes Secret manifest/);
+    expect(joined).toMatch(/Secret\/second: Kubernetes Secret manifest/);
   });
 });

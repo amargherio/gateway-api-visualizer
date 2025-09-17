@@ -25,6 +25,16 @@
   let yamlErrors: Array<{ line: number; column: number; message: string }> = [];
   let tableSelectedRouteId: string | null = null; // for syncing selection from table to graph
 
+  // Raw Kubernetes resources for mapping selections to original YAML objects
+  let rawGateways: Gateway[] = [];
+  let rawRoutes: AnyRoute[] = [];
+  let rawServices: Service[] = [];
+  let rawDeployments: Deployment[] = [];
+  let rawStatefulSets: StatefulSet[] = [];
+  let rawDaemonSets: DaemonSet[] = [];
+  let rawGatewayClasses: GatewayClass[] = [];
+  let rawReferenceGrants: ReferenceGrant[] = [];
+
   // Initialize theme
   onMount(() => {
     if (typeof window !== 'undefined') {
@@ -104,6 +114,14 @@
 
   function onYamlParse(event: CustomEvent<{ gateways: Gateway[]; routes: AnyRoute[]; services: Service[]; deployments: Deployment[]; statefulSets: StatefulSet[]; daemonSets: DaemonSet[]; gatewayClasses: GatewayClass[]; referenceGrants: ReferenceGrant[];}>) {
     const { gateways, routes, services, deployments, statefulSets, daemonSets, gatewayClasses, referenceGrants } = event.detail;
+    rawGateways = gateways;
+    rawRoutes = routes;
+    rawServices = services;
+    rawDeployments = deployments;
+    rawStatefulSets = statefulSets;
+    rawDaemonSets = daemonSets;
+    rawGatewayClasses = gatewayClasses;
+    rawReferenceGrants = referenceGrants;
     yamlErrors = [];
     try {
       graph = buildFullGraph({ gateways, routes, services, deployments, statefulSets, daemonSets, gatewayClasses, referenceGrants });
@@ -147,16 +165,60 @@
   }
 
   function findObject(id: string, g: CoverageGraph): any {
-    // Try route coverage objects first
-  const rc = g.routeCoverage.find((r: RouteCoverageDetail) => r.id === id);
-    if (rc) return rc;
-    // Then a node by id
-  const node = g.nodes.find((n: GraphNode) => n.id === id);
-    if (node) return node;
-    // Finally an edge
-  const edge = g.edges.find((e: GraphEdge) => e.id === id);
-    if (edge) return edge;
-    return null;
+    function originalFor(targetId: string): any | null {
+      if (targetId.startsWith('route:')) {
+        const [, rest] = targetId.split(':');
+        const [ns, name] = rest.split('/');
+        return rawRoutes.find(r => (r.metadata.namespace || 'default') === ns && r.metadata.name === name) || null;
+      }
+      if (targetId.startsWith('gateway:')) {
+        const base = targetId.split(':listener:')[0];
+        const [, rest] = base.split(':');
+        const [ns, name] = rest.split('/');
+        return rawGateways.find(r => (r.metadata.namespace || 'default') === ns && r.metadata.name === name) || null;
+      }
+      if (targetId.startsWith('service:')) {
+        const [, rest] = targetId.split(':');
+        const [ns, name] = rest.split('/');
+        return rawServices.find(s => (s.metadata.namespace || 'default') === ns && s.metadata.name === name) || null;
+      }
+      if (targetId.startsWith('gatewayclass:')) {
+        const [, name] = targetId.split(':');
+        return rawGatewayClasses.find(gc => gc.metadata.name === name) || null;
+      }
+      if (targetId.startsWith('workload:')) {
+        // workload:ns/kindlower:name
+        const withoutPrefix = targetId.replace('workload:', '');
+        const firstColon = withoutPrefix.indexOf(':');
+        if (firstColon !== -1) {
+          const left = withoutPrefix.slice(0, firstColon); // ns/kindlower
+          const resourceName = withoutPrefix.slice(firstColon + 1);
+          const [ns, kindLower] = left.split('/');
+          const kind = (kindLower || '').toLowerCase();
+          if (kind === 'deployment') return rawDeployments.find(d => (d.metadata.namespace || 'default') === ns && d.metadata.name === resourceName) || null;
+          if (kind === 'statefulset') return rawStatefulSets.find(d => (d.metadata.namespace || 'default') === ns && d.metadata.name === resourceName) || null;
+          if (kind === 'daemonset') return rawDaemonSets.find(d => (d.metadata.namespace || 'default') === ns && d.metadata.name === resourceName) || null;
+        }
+      }
+      if (targetId.startsWith('grant:')) {
+        // grant edges reference cross-namespace; original is a ReferenceGrant possibly (not directly encoded). We skip for now.
+        return null;
+      }
+      return null;
+    }
+
+    const rc = g.routeCoverage.find((r: RouteCoverageDetail) => r.id === id);
+    if (rc) {
+      const original = originalFor(id);
+      return original ? { ...rc, original } : rc;
+    }
+    const node = g.nodes.find((n: GraphNode) => n.id === id);
+    if (node) {
+      const original = originalFor(id);
+      return original ? { ...node, original } : node;
+    }
+    const edge = g.edges.find((e: GraphEdge) => e.id === id);
+    return edge || null;
   }
 
   function updateLayout() {

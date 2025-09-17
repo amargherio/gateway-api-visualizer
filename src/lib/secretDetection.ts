@@ -2,7 +2,7 @@
 // Heuristic scanning only; does not transmit data.
 
 export interface SecretDetectionResult {
-  reasons: string[];
+  reasons: string[]; // Each reason optionally prefixed with resource context
 }
 
 const SUSPICIOUS_KEY_PATTERNS = [
@@ -39,22 +39,38 @@ const ENV_VAR_LINE = /^\s*([A-Z0-9_]{4,})=(.+)$/gm;
 
 export function containsPotentialSecrets(raw: string, parsedDocs: unknown[]): SecretDetectionResult | null {
   const reasons: string[] = [];
+  // Derive a parallel array of resource contexts for objects for quick lookup during recursion.
+  // Context format: kind/name (or kind/unknown if name missing) for K8s-style objects.
+  const docContexts: string[] = [];
+  for (const d of parsedDocs) {
+    if (d && typeof d === 'object') {
+      const o = d as Record<string, any>;
+      if (typeof o.kind === 'string') {
+        const meta = o.metadata as Record<string, any> | undefined;
+        const nm = meta && typeof meta.name === 'string' ? meta.name : 'unknown';
+        docContexts.push(`${o.kind}/${nm}`);
+      } else {
+        docContexts.push('object');
+      }
+    } else {
+      docContexts.push('');
+    }
+  }
   const trimmed = raw.trim();
   if (!trimmed) return null;
 
   // 1. Look for explicit Kubernetes Secret objects
-  for (const doc of parsedDocs) {
+  parsedDocs.forEach((doc, idx) => {
     if (doc && typeof doc === 'object' && (doc as Record<string, unknown>)['kind'] === 'Secret') {
-      reasons.push('Kubernetes Secret manifest detected (kind: Secret)');
-      break;
+      reasons.push(`${docContexts[idx]}: Kubernetes Secret manifest detected (kind: Secret)`);
     }
-  }
+  });
 
   // 2. Look for common secret-like keys in any object recursively (limit depth)
-  const scanObject = (obj: unknown, depth: number) => {
+  const scanObject = (obj: unknown, depth: number, resourceCtx: string | null) => {
     if (depth > 6 || !obj || typeof obj !== 'object') return;
     if (Array.isArray(obj)) {
-      for (const v of obj) scanObject(v, depth + 1);
+      for (const v of obj) scanObject(v, depth + 1, resourceCtx);
       return;
     }
     for (const [k, v] of Object.entries(obj as Record<string, unknown>)) {
@@ -62,25 +78,37 @@ export function containsPotentialSecrets(raw: string, parsedDocs: unknown[]): Se
       if (SUSPICIOUS_KEY_PATTERNS.some(p => p.test(k)) && !SECRET_REFERENCE_KEY_ALLOWLIST.has(lowerK)) {
         // If value is non-empty string or base64-ish
         if (typeof v === 'string' && v.trim().length > 0) {
-          reasons.push(`Suspicious key name: ${k}`);
+          reasons.push(`${resourceCtx || 'object'}: Suspicious key name: ${k}`);
           if (v.length > 20) {
-            reasons.push(`Value for key ${k} appears long (${v.length} chars)`);
+            reasons.push(`${resourceCtx || 'object'}: Value for key ${k} appears long (${v.length} chars)`);
           }
         } else if (typeof v === 'object') {
           // For Secret.data section (base64 values)
           if (lowerK === 'data' || lowerK === 'stringdata') {
-            reasons.push(`Possible secret data block under key: ${k}`);
+            reasons.push(`${resourceCtx || 'object'}: Possible secret data block under key: ${k}`);
           }
         }
       }
-      scanObject(v, depth + 1);
+      // If this nested object itself is a k8s object, update context
+      let nextCtx = resourceCtx;
+      if (v && typeof v === 'object') {
+        const vv = v as Record<string, any>;
+        if (typeof vv.kind === 'string') {
+          const meta = vv.metadata as Record<string, any> | undefined;
+          const nm = meta && typeof meta.name === 'string' ? meta.name : 'unknown';
+          nextCtx = `${vv.kind}/${nm}`;
+        }
+      }
+      scanObject(v, depth + 1, nextCtx);
     }
   };
-  for (const doc of parsedDocs) scanObject(doc, 0);
+  parsedDocs.forEach((doc, idx) => {
+    scanObject(doc, 0, docContexts[idx] || null);
+  });
 
   // 3. Raw text pattern checks
   if (PRIVATE_KEY_BLOCK.test(raw)) {
-    reasons.push('Private key block present');
+    reasons.push(`raw: Private key block present`);
   }
 
   // Environment variable style lines
@@ -88,7 +116,7 @@ export function containsPotentialSecrets(raw: string, parsedDocs: unknown[]): Se
   while ((match = ENV_VAR_LINE.exec(raw)) !== null) {
     const varName = match[1];
     if (SUSPICIOUS_KEY_PATTERNS.some(p => p.test(varName))) {
-      reasons.push(`Suspicious environment variable: ${varName}`);
+      reasons.push(`raw: Suspicious environment variable: ${varName}`);
     }
   }
 
@@ -96,7 +124,7 @@ export function containsPotentialSecrets(raw: string, parsedDocs: unknown[]): Se
   if (GENERIC_SECRET_LIKE.test(raw)) {
     // Only add generic reason if none more specific yet
     if (!reasons.some(r => r.includes('Private key') || r.includes('Secret') || r.includes('Suspicious'))) {
-      reasons.push('Opaque secret-like token detected');
+      reasons.push('raw: Opaque secret-like token detected');
     }
   }
 
