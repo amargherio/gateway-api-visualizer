@@ -233,10 +233,13 @@
 
 <div class="min-h-screen flex flex-col">
   <header class="navbar bg-base-200 shadow">
-    <div class="navbar-start px-4">
-      <h1 class="text-xl font-bold">Gateway API Visualizer</h1>
+    <div class="navbar-start px-4 flex items-center gap-3">
+      <h1 class="text-xl font-bold flex items-center gap-2">
+        Gateway API Visualizer
+        <span class="badge badge-outline text-xs font-normal" title={`Version ${__APP_VERSION__} (commit ${__GIT_HASH__})`}>{__APP_VERSION__}<span class="opacity-60 ml-1">{__GIT_HASH__}</span></span>
+      </h1>
     </div>
-    <div class="navbar-end pr-4">
+    <div class="navbar-end pr-4 flex items-center gap-3">
       <ThemeToggle />
     </div>
   </header>
