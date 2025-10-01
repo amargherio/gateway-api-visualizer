@@ -19,7 +19,7 @@
 		"js-yaml": "^4.1.0",
 		"monaco-editor-core": "^0.53.0",
 		"monaco-yaml": "^5.4.0",
-		"svelte": "^5.38.10",
+		"svelte": "^5.39.8",
 		"yaml-lint": "^1.7.0"
 	},
 	"devDependencies": {
