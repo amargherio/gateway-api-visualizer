@@ -39,6 +39,13 @@ describe('containsPotentialSecrets', () => {
     expect(res).toBeNull();
   });
 
+  it('does not flag cert-manager.io annotations', () => {
+    const raw = `apiVersion: cert-manager.io/v1\nkind: Certificate\nmetadata:\n  name: mycert\n  annotations:\n    cert-manager.io/issuer: letsencrypt-prod\n    cert-manager.io/some-setting: value\nspec:\n  secretName: mycert-tls\n  commonName: example.com\n  dnsNames:\n    - example.com\n    - www.example.com`;
+    const parsed = [yaml.load(raw)];
+    const res = containsPotentialSecrets(raw, parsed as unknown[]);
+    expect(res).toBeNull();
+  });
+
   it('includes context for multiple resources', () => {
     const raw = `apiVersion: v1\nkind: Secret\nmetadata:\n  name: first\n---\napiVersion: v1\nkind: Secret\nmetadata:\n  name: second`; // two secrets
     const parsed = raw.split(/---/).map(d => yaml.load(d));

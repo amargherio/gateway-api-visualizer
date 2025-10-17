@@ -18,6 +18,15 @@ const SUSPICIOUS_KEY_PATTERNS = [
   /auth/i
 ];
 
+// Annotation or domain-scoped key patterns we intentionally ignore even if they contain
+// substrings that would normally match SUSPICIOUS_KEY_PATTERNS. These typically reference
+// controller configuration and do not embed secret material themselves.
+// Example: metadata.annotations["cert-manager.io/issuer"] should not be flagged just for
+// containing "cert".
+const IGNORE_ANNOTATION_KEY_PATTERNS: RegExp[] = [
+  /^cert-manager\.io\//i,
+];
+
 // Keys that reference a secret name rather than containing secret material; should not trigger on their own
 const SECRET_REFERENCE_KEY_ALLOWLIST = new Set([
   'secretname', // secretName
@@ -75,7 +84,10 @@ export function containsPotentialSecrets(raw: string, parsedDocs: unknown[]): Se
     }
     for (const [k, v] of Object.entries(obj as Record<string, unknown>)) {
       const lowerK = k.toLowerCase();
-      if (SUSPICIOUS_KEY_PATTERNS.some(p => p.test(k)) && !SECRET_REFERENCE_KEY_ALLOWLIST.has(lowerK)) {
+      // Skip annotation-style keys we explicitly ignore
+      if (k.includes('/') && IGNORE_ANNOTATION_KEY_PATTERNS.some(p => p.test(k))) {
+        // Still recurse into value (in case the value is an object with its own suspicious keys)
+      } else if (SUSPICIOUS_KEY_PATTERNS.some(p => p.test(k)) && !SECRET_REFERENCE_KEY_ALLOWLIST.has(lowerK)) {
         // If value is non-empty string or base64-ish
         if (typeof v === 'string' && v.trim().length > 0) {
           reasons.push(`${resourceCtx || 'object'}: Suspicious key name: ${k}`);
