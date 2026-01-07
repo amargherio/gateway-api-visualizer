@@ -30,7 +30,7 @@
 		"@typescript-eslint/eslint-plugin": "^8.46.4",
 		"@typescript-eslint/parser": "^8.46.4",
 		"autoprefixer": "^10.4.22",
-		"eslint": "^9.39.1",
+		"eslint": "^9.39.2",
 		"eslint-config-prettier": "^10.1.8",
 		"eslint-plugin-svelte": "^3.13.0",
 		"postcss": "^8.5.6",
