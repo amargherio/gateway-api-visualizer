@@ -29,7 +29,7 @@
 		"@types/js-yaml": "^4.0.9",
 		"@types/node": "^25.5.2",
 		"@typescript/native-preview": "7.0.0-dev.20260202.1",
-		"autoprefixer": "^10.4.24",
+		"autoprefixer": "^10.4.27",
 		"oxlint": "^1.59.0",
 		"postcss": "^8.5.6",
 		"prettier": "^3.8.1",
