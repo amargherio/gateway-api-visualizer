@@ -9,8 +9,8 @@ importers:
   .:
     dependencies:
       cytoscape:
-        specifier: ^3.33.1
-        version: 3.33.1
+        specifier: ^3.33.3
+        version: 3.33.3
       js-yaml:
         specifier: ^4.1.1
         version: 4.1.1
@@ -776,8 +776,8 @@ packages:
   consola@2.15.3:
     resolution: {integrity: sha512-9vAdYbHj6x2fLKC4+oPH0kFzY/orMZyG2Aj+kNylHxKGJ/Ed4dpNyAQYwJOdqO4zdM7XpVHmyejQDcQHrnuXbw==}
 
-  cytoscape@3.33.1:
-    resolution: {integrity: sha512-iJc4TwyANnOGR1OmWhsS9ayRS3s+XQ185FmuHObThD+5AeJCakAAbWv8KimMTt08xCCLNgneQwFp+JRJOr9qGQ==}
+  cytoscape@3.33.3:
+    resolution: {integrity: sha512-Gej7U+OKR+LZ8kvX7rb2HhCYJ0IhvEFsnkud4SB1PR+BUY/TsSO0dmOW59WEVLu51b1Rm+gQRKoz4bLYxGSZ2g==}
     engines: {node: '>=0.10'}
 
   deepmerge@4.3.1:
@@ -1808,7 +1808,7 @@ snapshots:
 
   consola@2.15.3: {}
 
-  cytoscape@3.33.1: {}
+  cytoscape@3.33.3: {}
 
   deepmerge@4.3.1: {}
 
