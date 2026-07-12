@@ -16,7 +16,7 @@
 		"test": "vitest --run"
 	},
 	"dependencies": {
-		"cytoscape": "^3.33.1",
+		"cytoscape": "^3.34.0",
 		"js-yaml": "^4.2.0",
 		"monaco-editor-core": "^0.55.1",
 		"monaco-yaml": "^5.4.0",
