@@ -31,7 +31,7 @@
 		"@typescript/native-preview": "7.0.0-dev.20260501.1",
 		"autoprefixer": "^10.4.27",
 		"oxlint": "^1.68.0",
-		"postcss": "^8.5.15",
+		"postcss": "^8.5.17",
 		"prettier": "^3.8.1",
 		"tailwindcss": "^4.2.4",
 		"typescript": "^5.9.3",
