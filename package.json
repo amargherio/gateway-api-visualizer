@@ -17,7 +17,7 @@
 	},
 	"dependencies": {
 		"cytoscape": "^3.34.0",
-		"js-yaml": "^4.2.0",
+		"js-yaml": "^4.3.0",
 		"monaco-editor-core": "^0.55.1",
 		"monaco-yaml": "^5.4.0",
 		"svelte": "^5.56.1",
@@ -31,7 +31,7 @@
 		"@typescript/native-preview": "7.0.0-dev.20260501.1",
 		"autoprefixer": "^10.4.27",
 		"oxlint": "^1.73.0",
-		"postcss": "^8.5.17",
+		"postcss": "^8.5.18",
 		"prettier": "^3.8.1",
 		"tailwindcss": "^4.3.2",
 		"typescript": "^5.9.3",
