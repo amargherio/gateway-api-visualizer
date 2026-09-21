@@ -49,7 +49,7 @@ Run dev (web UI):
 ```bash
 pnpm dev
 ```
- 
+
 Web UI runs on :5173. Paste / edit YAML in the left panel and the graph updates instantly.
 
 ## Sample YAML
@@ -78,23 +78,23 @@ CoverageGraph {
 
 ```bash
 pnpm test
+pnpm run test:browser
 ```
 
 ### YAML worker compatibility
 
-The editor and `monaco-yaml` share the pinned `monaco-editor@0.52.2` instance.
-`monaco-worker-manager@2.0.1` requires its `initialize`/`createData` protocol;
-newer `monaco-editor-core` APIs use a different worker startup contract.
-Upgrade these packages together, not the editor alone. The application imports
-only the standalone editor API, not Monaco's full language bundle.
+The editor and `monaco-yaml` share the pinned `monaco-editor@0.56.0` instance.
+`monaco-worker-manager@2.0.1` still calls Monaco's legacy host API, so
+`patches/monaco-worker-manager@2.0.1.patch` adapts only its host worker creation
+to Monaco's Worker-based API. The worker continues to use Monaco's existing
+`initialize`/`createData` transport. The application imports the public,
+tree-shakeable editor entry instead of Monaco's full language bundle.
 
-After worker or bundler changes, check both `pnpm dev` and
-`pnpm build && pnpm preview` in a browser. Enter an unclosed YAML sequence and
-confirm error markers appear. In a valid Gateway document, change
-`metadata.name` to a number and confirm a schema warning appears; correcting it
-to a string must clear the warning. This checks the worker, not just the app's
-separate YAML parser. Load the multi-gateway sample and confirm 3 gateways,
-20 routes, and no worker errors in the console.
+Upgrade Monaco, monaco-yaml, and the manager patch together. The Playwright
+suite runs against both Vite development and the production preview. It checks
+worker-owned YAML syntax/schema markers, recovery after correction, a
+Promise-returning worker factory, hover/completion/formatting, and the shipped
+multi-gateway sample. Parser errors alone do not prove that the worker works.
 
 ### Dependency security
 
@@ -104,12 +104,11 @@ the previous browser targets and the separate Monaco chunk.
 
 Monaco vendors DOMPurify, so dependency metadata alone does not update the
 sanitizer shipped to browsers. The patch in
-`patches/monaco-editor@0.52.2.patch` redirects all three sanitizer consumers
-to the DOMPurify package. A pnpm package extension declares that dependency
-with a `^3.4.15` security floor because this Monaco release does not declare it.
-Keep the patch until a compatible Monaco release uses a non-vulnerable
-sanitizer; review the vendored code as well as the dependency version before
-removing it.
+`patches/monaco-editor@0.56.0.patch` redirects Monaco's sanitizer integration
+to the DOMPurify package, which is constrained to `^3.4.15` by a scoped pnpm
+override. Keep the patch until a compatible Monaco release uses a
+non-vulnerable sanitizer; review the vendored code as well as the dependency
+version before removing it.
 
 After dependency changes, run `pnpm install --frozen-lockfile` before
 `pnpm run typecheck`, `pnpm test`, and `pnpm run build`. Run `pnpm audit` to
@@ -132,7 +131,7 @@ If you fork the repo:
 1. Enable Pages: Settings -> Pages -> Source: GitHub Actions
 2. Ensure the repository name matches the `REPO` constant in `vite.config.ts` (used to set the base path). If you change it, update that constant accordingly.
 3. Push to `main` or run the workflow manually.
- 
+
 ## License
 
 [MIT](LICENSE.md)

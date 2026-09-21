@@ -1,0 +1,52 @@
+diff --git a/index.js b/index.js
+index 6527afac750ef88957e5d7b02b9cb04c4000df5d..2c2aca461994f69dc3d27f7d2ebca85ec4f21ccb 100644
+--- a/index.js
++++ b/index.js
+@@ -9,7 +9,7 @@
+  * @returns The worker manager.
+  */
+ export function createWorkerManager(monaco, options) {
+-    let { createData, interval = 30_000, label, moduleId, stopWhenIdleFor = 120_000 } = options;
++    let { createData, interval = 30_000, label, stopWhenIdleFor = 120_000 } = options;
+     let worker;
+     let lastUsedTime = 0;
+     let disposed = false;
+@@ -40,11 +40,24 @@ export function createWorkerManager(monaco, options) {
+             }
+             lastUsedTime = Date.now();
+             if (!worker) {
+-                worker = monaco.editor.createWebWorker({
+-                    createData,
+-                    label,
+-                    moduleId,
++                const environment = globalThis.MonacoEnvironment;
++                if (typeof environment?.getWorker !== 'function') {
++                    throw new Error('MonacoEnvironment.getWorker is required');
++                }
++                const workerData = createData;
++                const nativeWorker = environment.getWorker('workerMain.js', label);
++                const readyWorker = Promise.resolve(nativeWorker).then((instance) => {
++                    try {
++                        instance.postMessage('-please-ignore-');
++                        instance.postMessage(workerData);
++                    }
++                    catch (error) {
++                        instance.terminate();
++                        throw error;
++                    }
++                    return instance;
+                 });
++                worker = monaco.editor.createWebWorker({ worker: readyWorker });
+             }
+             return worker.withSyncedResources(resources);
+         },
+diff --git a/worker.js b/worker.js
+index 8fe26e59cc2ddf7342c5d96b066a3a13a4b4a284..c3c3851328af1aa067d5d0dbd91aa1f46d2daebb 100644
+--- a/worker.js
++++ b/worker.js
+@@ -1,4 +1,4 @@
+-import { initialize as initializeWorker } from 'monaco-editor/esm/vs/editor/editor.worker.js';
++import { initialize as initializeWorker } from 'monaco-editor/editor/editor.worker.js';
+ /**
+  * Create a web worker proxy.
+  *

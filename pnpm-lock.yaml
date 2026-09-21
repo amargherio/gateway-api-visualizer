@@ -5,14 +5,16 @@ settings:
   excludeLinksFromLockfile: false
 
 overrides:
+  monaco-editor>dompurify: ^3.4.15
   vite>esbuild: '-'
 
-packageExtensionsChecksum: fe4a370ad6aa5270c247a27ffc455744
-
 patchedDependencies:
-  monaco-editor@0.52.2:
-    hash: tkiidadygcdh3bnuwamylvm5fy
-    path: patches/monaco-editor@0.52.2.patch
+  monaco-editor@0.56.0:
+    hash: vf3xvqjy2uf3c22bhwccddhela
+    path: patches/monaco-editor@0.56.0.patch
+  monaco-worker-manager@2.0.1:
+    hash: yxpdjqsx777ftlvy6ev3hlpjfy
+    path: patches/monaco-worker-manager@2.0.1.patch
 
 importers:
 
@@ -25,15 +27,18 @@ importers:
         specifier: ^5.4.2
         version: 5.4.2
       monaco-editor:
-        specifier: 0.52.2
-        version: 0.52.2(patch_hash=tkiidadygcdh3bnuwamylvm5fy)
+        specifier: 0.56.0
+        version: 0.56.0(patch_hash=vf3xvqjy2uf3c22bhwccddhela)
       monaco-yaml:
         specifier: ^5.5.1
-        version: 5.5.1(monaco-editor@0.52.2(patch_hash=tkiidadygcdh3bnuwamylvm5fy))
+        version: 5.5.1(monaco-editor@0.56.0(patch_hash=vf3xvqjy2uf3c22bhwccddhela))
       svelte:
         specifier: ^5.57.1
         version: 5.57.1
     devDependencies:
+      '@playwright/test':
+        specifier: 1.63.0
+        version: 1.63.0
       '@sveltejs/vite-plugin-svelte':
         specifier: ^7.3.0
         version: 7.3.0(svelte@5.57.1)(vite@8.3.0(@types/node@25.5.2)(jiti@2.7.0)(yaml@2.8.3))
@@ -212,6 +217,11 @@ packages:
     engines: {node: ^20.19.0 || >=22.12.0}
     cpu: [x64]
     os: [win32]
+
+  '@playwright/test@1.63.0':
+    resolution: {integrity: sha512-oxMK4vllB9RK5NQ2l1pq1IfOf2AvnEuj/vYGDj0H2nMtmtZpKtCwt/l00GEO6xjGfpBNAvjovvYdCm50dRQkpQ==}
+    engines: {node: '>=20'}
+    hasBin: true
 
   '@rolldown/binding-android-arm-eabi@1.2.9':
     resolution: {integrity: sha512-tNISae1QEf/vkb3xkRcjV5SEdzPE97We5IVaa2Z8jSszQPZ8U60B/YCYpw4QI7VidYsBtKavczXf+DyDs9WGxw==}
@@ -787,8 +797,13 @@ packages:
   magic-string@1.4.1:
     resolution: {integrity: sha512-8lyCu36ErXR0J9uaGKlKQoiLZKmtI63YGLE8G2o9jyRPdr4X47LusSOwgOJOzcVtp81fTAAjxR7BwKz682Jhow==}
 
-  monaco-editor@0.52.2:
-    resolution: {integrity: sha512-GEQWEZmfkOGLdd3XK8ryrfWz3AIP8YymVXiPHEdewrUq7mh0qrKrfHLNCXcbB6sTnMLnOZ3ztSiKcciFUkIJwQ==}
+  marked@14.0.0:
+    resolution: {integrity: sha512-uIj4+faQ+MgHgwUW1l2PsPglZLOLOT1uErt06dAPtx2kjteLAkbsd/0FiYg/MGS+i7ZKLb7w2WClxHkzOOuryQ==}
+    engines: {node: '>= 18'}
+    hasBin: true
+
+  monaco-editor@0.56.0:
+    resolution: {integrity: sha512-sXboRm3BeBeLm938eaiyLMe0OxzfXIlZvbv4ir/jVgQy1zDhWjgmny0WoN45fuDKhCCQsYMbBJrv/A6jd8aCUg==}
 
   monaco-languageserver-types@0.4.0:
     resolution: {integrity: sha512-QQ3BZiU5LYkJElGncSNb5AKoJ/LCs6YBMCJMAz9EA7v+JaOdn3kx2cXpPTcZfKA5AEsR0vc97sAw+5mdNhVBmw==}
@@ -851,6 +866,16 @@ packages:
   picomatch@4.0.7:
     resolution: {integrity: sha512-qcJu88Q2IWqJsDD529JKMdwGm/dvInW4HvQnRwiH9JtihJvzGOscDtHE3x1pBKeUOTysQ8kVmLnJ2kJu7yhcGA==}
     engines: {node: '>=12'}
+
+  playwright-core@1.63.0:
+    resolution: {integrity: sha512-rYCsBF/M5HjUch52bbtVONEFjv6Xu8sm8h72dNlR5bzIE1fvC/bxgspzkjSfU+MweEMmPM8KJebG6nnyxo5mCg==}
+    engines: {node: '>=20'}
+    hasBin: true
+
+  playwright@1.63.0:
+    resolution: {integrity: sha512-+7ziBLidS4NaNCdt57SUDT+wYmmd5fmiQejUic/kb+YsYSCPyOOE9sebzMjNmQrsnNpDJqd4WHvV/8lfKfUDUg==}
+    engines: {node: '>=20'}
+    hasBin: true
 
   postcss-value-parser@4.2.0:
     resolution: {integrity: sha512-1NNCs6uurfkVbeXG4S8JFT9t19m45ICnif8zWLd5oPSZ50QnwMfK+H3jv408d4jw/7Bttv5axS5IiHoLaVNHeQ==}
@@ -1129,6 +1154,10 @@ snapshots:
 
   '@oxlint/binding-win32-x64-msvc@1.73.0':
     optional: true
+
+  '@playwright/test@1.63.0':
+    dependencies:
+      playwright: 1.63.0
 
   '@rolldown/binding-android-arm-eabi@1.2.9':
     optional: true
@@ -1554,9 +1583,12 @@ snapshots:
     dependencies:
       '@jridgewell/sourcemap-codec': 1.6.0
 
-  monaco-editor@0.52.2(patch_hash=tkiidadygcdh3bnuwamylvm5fy):
+  marked@14.0.0: {}
+
+  monaco-editor@0.56.0(patch_hash=vf3xvqjy2uf3c22bhwccddhela):
     dependencies:
       dompurify: 3.4.15
+      marked: 14.0.0
 
   monaco-languageserver-types@0.4.0:
     dependencies:
@@ -1570,19 +1602,19 @@ snapshots:
 
   monaco-types@0.1.1: {}
 
-  monaco-worker-manager@2.0.1(monaco-editor@0.52.2(patch_hash=tkiidadygcdh3bnuwamylvm5fy)):
+  monaco-worker-manager@2.0.1(patch_hash=yxpdjqsx777ftlvy6ev3hlpjfy)(monaco-editor@0.56.0(patch_hash=vf3xvqjy2uf3c22bhwccddhela)):
     dependencies:
-      monaco-editor: 0.52.2(patch_hash=tkiidadygcdh3bnuwamylvm5fy)
+      monaco-editor: 0.56.0(patch_hash=vf3xvqjy2uf3c22bhwccddhela)
 
-  monaco-yaml@5.5.1(monaco-editor@0.52.2(patch_hash=tkiidadygcdh3bnuwamylvm5fy)):
+  monaco-yaml@5.5.1(monaco-editor@0.56.0(patch_hash=vf3xvqjy2uf3c22bhwccddhela)):
     dependencies:
       '@vscode/l10n': 0.0.18
       jsonc-parser: 3.3.1
-      monaco-editor: 0.52.2(patch_hash=tkiidadygcdh3bnuwamylvm5fy)
+      monaco-editor: 0.56.0(patch_hash=vf3xvqjy2uf3c22bhwccddhela)
       monaco-languageserver-types: 0.4.0
       monaco-marker-data-provider: 1.2.5
       monaco-types: 0.1.1
-      monaco-worker-manager: 2.0.1(monaco-editor@0.52.2(patch_hash=tkiidadygcdh3bnuwamylvm5fy))
+      monaco-worker-manager: 2.0.1(patch_hash=yxpdjqsx777ftlvy6ev3hlpjfy)(monaco-editor@0.56.0(patch_hash=vf3xvqjy2uf3c22bhwccddhela))
       path-browserify: 1.0.1
       prettier: 3.8.1
       proxy-disposable: 1.0.0
@@ -1628,6 +1660,12 @@ snapshots:
   picomatch@4.0.5: {}
 
   picomatch@4.0.7: {}
+
+  playwright-core@1.63.0: {}
+
+  playwright@1.63.0:
+    dependencies:
+      playwright-core: 1.63.0
 
   postcss-value-parser@4.2.0: {}
 

@@ -13,16 +13,18 @@
 		"lint": "oxlint src/ --tsconfig tsconfig.json",
 		"typecheck": "tsgo --project tsconfig.json --noEmit",
 		"format": "prettier --write .",
-		"test": "vitest --run"
+		"test": "vitest --run",
+		"test:browser": "playwright test"
 	},
 	"dependencies": {
 		"cytoscape": "^3.34.3",
 		"js-yaml": "^5.4.2",
-		"monaco-editor": "0.52.2",
+		"monaco-editor": "0.56.0",
 		"monaco-yaml": "^5.5.1",
 		"svelte": "^5.57.1"
 	},
 	"devDependencies": {
+		"@playwright/test": "1.63.0",
 		"@sveltejs/vite-plugin-svelte": "^7.3.0",
 		"@tailwindcss/postcss": "^4.3.3",
 		"@types/node": "^25.5.2",
@@ -38,17 +40,12 @@
 	},
 	"pnpm": {
 		"overrides": {
+			"monaco-editor>dompurify": "^3.4.15",
 			"vite>esbuild": "-"
 		},
-		"packageExtensions": {
-			"monaco-editor@0.52.2": {
-				"dependencies": {
-					"dompurify": "^3.4.15"
-				}
-			}
-		},
 		"patchedDependencies": {
-			"monaco-editor@0.52.2": "patches/monaco-editor@0.52.2.patch"
+			"monaco-editor@0.56.0": "patches/monaco-editor@0.56.0.patch",
+			"monaco-worker-manager@2.0.1": "patches/monaco-worker-manager@2.0.1.patch"
 		}
 	}
 }

@@ -1,12 +1,10 @@
 <script lang="ts">
   import { onMount, onDestroy, createEventDispatcher } from 'svelte';
   import '../monaco-workers';
-  // Standalone Monaco CSS; the full language bundle is not imported.
-  import 'monaco-editor/esm/vs/base/browser/ui/codicons/codicon/codicon.css';
-  import 'monaco-editor/esm/vs/editor/standalone/browser/standalone-tokens.css';
-  import 'monaco-editor/esm/vs/base/browser/ui/scrollbar/media/scrollbars.css';
+  // Register Monaco's public codicon styles without loading the full language bundle.
+  import 'monaco-editor/features/codicon/register.js';
   // Lazy loaded monaco
-  let monaco: typeof import('monaco-editor') | null = null;
+  let monaco: typeof import('monaco-editor/editor') | null = null;
   let yamlReady = false;
   // Track current detected language for UI badge
   let currentLanguage: 'YAML' | 'JSON' = 'YAML';
@@ -54,7 +52,7 @@
 
   onMount(async () => {
     if (!monaco) {
-      monaco = await import('monaco-editor/esm/vs/editor/editor.api');
+      monaco = await import('monaco-editor/editor');
     }
     if (!yamlReady) {
       try {

@@ -49,7 +49,8 @@ export default defineConfig(({ mode }) => {
             groups: [
               {
                 name: 'monaco',
-                test: /monaco-editor[\\/]esm[\\/]vs[\\/]editor[\\/]editor\.api/
+                test: /monaco-editor[\\/]esm[\\/]vs[\\/]editor\.js$/,
+                includeDependenciesRecursively: true
               }
             ]
           }
