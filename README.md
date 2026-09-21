@@ -37,7 +37,7 @@ src/
 
 ## Getting Started
 
-Install dependencies (requires Node 20+ and pnpm):
+Install dependencies (requires Node 20.19+, 22.12+, or 24+ and pnpm 9):
 
 ```bash
 corepack enable # if pnpm not installed
@@ -79,6 +79,41 @@ CoverageGraph {
 ```bash
 pnpm test
 ```
+
+### YAML worker compatibility
+
+The editor and `monaco-yaml` share the pinned `monaco-editor@0.52.2` instance.
+`monaco-worker-manager@2.0.1` requires its `initialize`/`createData` protocol;
+newer `monaco-editor-core` APIs use a different worker startup contract.
+Upgrade these packages together, not the editor alone. The application imports
+only the standalone editor API, not Monaco's full language bundle.
+
+After worker or bundler changes, check both `pnpm dev` and
+`pnpm build && pnpm preview` in a browser. Enter an unclosed YAML sequence and
+confirm error markers appear. In a valid Gateway document, change
+`metadata.name` to a number and confirm a schema warning appears; correcting it
+to a string must clear the warning. This checks the worker, not just the app's
+separate YAML parser. Load the multi-gateway sample and confirm 3 gateways,
+20 routes, and no worker errors in the console.
+
+### Dependency security
+
+Vite 8 uses Rolldown and Oxc instead of Rollup and esbuild. The pnpm override
+removes Vite's unused optional esbuild compatibility peer. The build retains
+the previous browser targets and the separate Monaco chunk.
+
+Monaco vendors DOMPurify, so dependency metadata alone does not update the
+sanitizer shipped to browsers. The patch in
+`patches/monaco-editor@0.52.2.patch` redirects all three sanitizer consumers
+to the DOMPurify package. A pnpm package extension declares that dependency
+with a `^3.4.15` security floor because this Monaco release does not declare it.
+Keep the patch until a compatible Monaco release uses a non-vulnerable
+sanitizer; review the vendored code as well as the dependency version before
+removing it.
+
+After dependency changes, run `pnpm install --frozen-lockfile` before
+`pnpm run typecheck`, `pnpm test`, and `pnpm run build`. Run `pnpm audit` to
+check the locked dependency graph.
 
 ## Deployment (GitHub Pages)
 

@@ -18,12 +18,12 @@
 	"dependencies": {
 		"cytoscape": "^3.34.3",
 		"js-yaml": "^5.4.2",
-		"monaco-editor-core": "^0.55.1",
+		"monaco-editor": "0.52.2",
 		"monaco-yaml": "^5.5.1",
 		"svelte": "^5.57.1"
 	},
 	"devDependencies": {
-		"@sveltejs/vite-plugin-svelte": "^6.2.4",
+		"@sveltejs/vite-plugin-svelte": "^7.3.0",
 		"@tailwindcss/postcss": "^4.3.3",
 		"@types/node": "^25.5.2",
 		"@typescript/native-preview": "7.0.0-dev.20260501.1",
@@ -33,7 +33,22 @@
 		"prettier": "^3.8.1",
 		"tailwindcss": "^4.3.3",
 		"typescript": "^5.9.3",
-		"vite": "^7.3.5",
-		"vitest": "^4.1.9"
+		"vite": "^8.3.0",
+		"vitest": "^4.1.11"
+	},
+	"pnpm": {
+		"overrides": {
+			"vite>esbuild": "-"
+		},
+		"packageExtensions": {
+			"monaco-editor@0.52.2": {
+				"dependencies": {
+					"dompurify": "^3.4.15"
+				}
+			}
+		},
+		"patchedDependencies": {
+			"monaco-editor@0.52.2": "patches/monaco-editor@0.52.2.patch"
+		}
 	}
 }

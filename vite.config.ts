@@ -26,6 +26,10 @@ export default defineConfig(({ mode }) => {
   return {
     base: mode === 'development' ? '/' : `/${REPO}/`,
     plugins: [svelte({ ...svelteConfig })],
+    optimizeDeps: {
+      // This CommonJS dependency is only reached inside the YAML worker.
+      include: ['monaco-yaml > path-browserify']
+    },
     define: {
       __APP_VERSION__: JSON.stringify(version),
       __GIT_HASH__: JSON.stringify(gitHash),
@@ -37,11 +41,16 @@ export default defineConfig(({ mode }) => {
     build: {
       outDir: 'dist',
       emptyOutDir: true,
-      rollupOptions: {
+      // Preserve Vite 7's browser support floor during the bundler migration.
+      target: ['chrome107', 'edge107', 'firefox104', 'safari16'],
+      rolldownOptions: {
         output: {
-          manualChunks: {
-            monaco: [
-              'monaco-editor-core/esm/vs/editor/editor.api'
+          codeSplitting: {
+            groups: [
+              {
+                name: 'monaco',
+                test: /monaco-editor[\\/]esm[\\/]vs[\\/]editor[\\/]editor\.api/
+              }
             ]
           }
         }

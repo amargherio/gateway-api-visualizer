@@ -1,12 +1,12 @@
 <script lang="ts">
   import { onMount, onDestroy, createEventDispatcher } from 'svelte';
   import '../monaco-workers';
-  // Monaco core CSS pieces (standalone)
-  import 'monaco-editor-core/esm/vs/base/browser/ui/codicons/codicon/codicon.css';
-  import 'monaco-editor-core/esm/vs/editor/standalone/browser/standalone-tokens.css';
-  import 'monaco-editor-core/esm/vs/base/browser/ui/scrollbar/media/scrollbars.css';
+  // Standalone Monaco CSS; the full language bundle is not imported.
+  import 'monaco-editor/esm/vs/base/browser/ui/codicons/codicon/codicon.css';
+  import 'monaco-editor/esm/vs/editor/standalone/browser/standalone-tokens.css';
+  import 'monaco-editor/esm/vs/base/browser/ui/scrollbar/media/scrollbars.css';
   // Lazy loaded monaco
-  let monaco: typeof import('monaco-editor-core') | null = null;
+  let monaco: typeof import('monaco-editor') | null = null;
   let yamlReady = false;
   // Track current detected language for UI badge
   let currentLanguage: 'YAML' | 'JSON' = 'YAML';
@@ -54,7 +54,7 @@
 
   onMount(async () => {
     if (!monaco) {
-      monaco = await import('monaco-editor-core/esm/vs/editor/editor.api');
+      monaco = await import('monaco-editor/esm/vs/editor/editor.api');
     }
     if (!yamlReady) {
       try {
