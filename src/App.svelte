@@ -1,31 +1,66 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
+  import type { CytoscapeOptions, ElementDefinition } from 'cytoscape';
   import Graph from './lib/Graph.svelte';
   import YamlEditor from './lib/YamlEditor.svelte';
   import ThemeToggle from './lib/ThemeToggle.svelte';
-  import { theme } from './lib/theme.js';
-  import type { CoverageGraph, Gateway, AnyRoute, Service, Deployment, StatefulSet, DaemonSet, GatewayClass, ReferenceGrant, GraphNode, GraphEdge, RouteCoverageDetail } from './lib/shared.js';
-  import { buildCoverageGraph, buildFullGraph } from './lib/shared.js';
-  import { onMount } from 'svelte';
   import DetailsSidebar from './lib/components/DetailsSidebar.svelte';
+  import GatewayApiSupport from './lib/GatewayApiSupport.svelte';
   import RouteCoverageTable from './lib/RouteCoverageTable.svelte';
+  import { theme } from './lib/theme.js';
+  import {
+    defaultGatewayApiVersion,
+    gatewayApiReleases,
+    loadGatewayApiBundle,
+    type GatewayApiAuditState,
+    type GatewayApiBundle,
+    type GatewayApiVersion,
+  } from './lib/gatewayApi.js';
+  import type {
+    AnyRoute,
+    CoverageGraph,
+    DaemonSet,
+    Deployment,
+    Gateway,
+    GatewayClass,
+    GraphEdge,
+    GraphNode,
+    ReferenceGrant,
+    RouteCoverageDetail,
+    Service,
+    StatefulSet,
+  } from './lib/shared.js';
+  import { buildFullGraph } from './lib/shared.js';
 
-  // Single-mode UI (editor + visualization). API mode removed.
+  type ParserIssue = { line: number; column: number; message: string };
+  type KubernetesResource = Gateway | AnyRoute | Service | Deployment | StatefulSet | DaemonSet | GatewayClass | ReferenceGrant;
+  type SelectedObject = (GraphNode | GraphEdge | RouteCoverageDetail) & { original?: KubernetesResource };
+
   let graph: CoverageGraph | null = null;
-  let elements: any[] = [];
+  let elements: ElementDefinition[] = [];
   let searchTerm = '';
   let pendingSearch = '';
-  let filterKind: string = 'ALL';
-  let filterCoverage: string = 'ALL';
+  let filterKind = 'ALL';
+  let filterCoverage = 'ALL';
   let selectedId: string | null = null;
-  let selectedObject: any = null;
-  let layoutName: string = 'breadthfirst';
-  let layoutConfig: any = { name: layoutName, animate: true, animationDuration: 400 };
+  let selectedObject: SelectedObject | null = null;
+  let layoutName = 'breadthfirst';
+  let layoutConfig: CytoscapeOptions['layout'] = { name: layoutName, animate: true, animationDuration: 400 };
   let sidebarOpen = false;
+  let yamlErrors: ParserIssue[] = [];
   let yamlEditor: YamlEditor;
-  let yamlErrors: Array<{ line: number; column: number; message: string }> = [];
-  let tableSelectedRouteId: string | null = null; // for syncing selection from table to graph
+  let selectionOpener: HTMLElement | null = null;
 
-  // Raw Kubernetes resources for mapping selections to original YAML objects
+  let gatewayApiVersion: GatewayApiVersion = defaultGatewayApiVersion;
+  let gatewayApiBundle: GatewayApiBundle | null = null;
+  let gatewayApiLoadError: string | null = null;
+  let releaseRequest = 0;
+  let auditState: GatewayApiAuditState = {
+    version: defaultGatewayApiVersion,
+    status: 'loading',
+    diagnostics: [],
+  };
+
   let rawGateways: Gateway[] = [];
   let rawRoutes: AnyRoute[] = [];
   let rawServices: Service[] = [];
@@ -35,84 +70,105 @@
   let rawGatewayClasses: GatewayClass[] = [];
   let rawReferenceGrants: ReferenceGrant[] = [];
 
-  // Initialize theme
   onMount(() => {
-    if (typeof window !== 'undefined') {
-      document.documentElement.setAttribute('data-theme', $theme);
-    }
-    
-    // No remote API mode initialization needed anymore
+    document.documentElement.setAttribute('data-theme', $theme);
+    void selectGatewayApiVersion(gatewayApiVersion);
   });
 
-  function applyFilters(g: CoverageGraph) {
+  async function selectGatewayApiVersion(version: GatewayApiVersion) {
+    gatewayApiVersion = version;
+    const request = ++releaseRequest;
+    gatewayApiBundle = null;
+    gatewayApiLoadError = null;
+    auditState = { version, status: 'loading', diagnostics: [] };
+
+    try {
+      const bundle = await loadGatewayApiBundle(version);
+      if (request !== releaseRequest || gatewayApiVersion !== version) return;
+      gatewayApiBundle = bundle;
+    } catch (error) {
+      if (request !== releaseRequest || gatewayApiVersion !== version) return;
+      const message = error instanceof Error ? error.message : String(error);
+      gatewayApiLoadError = message;
+      auditState = { version, status: 'error', diagnostics: [], message };
+    }
+  }
+
+  function onVersionChange(event: Event) {
+    void selectGatewayApiVersion((event.currentTarget as HTMLSelectElement).value as GatewayApiVersion);
+  }
+
+  function onAudit(event: CustomEvent<GatewayApiAuditState>) {
+    if (event.detail.version !== gatewayApiVersion) return;
+    auditState = event.detail;
+  }
+
+  function createStatusCopy(state: GatewayApiAuditState, version: GatewayApiVersion, bundle: GatewayApiBundle | null) {
+    if (state.status === 'loading') return `Loading CRDs for Gateway API ${version}…`;
+    if (state.status === 'error') return `Could not load CRDs for Gateway API ${version}.`;
+    if (state.diagnostics.length > 0) {
+      return `${state.diagnostics.length} schema issue${state.diagnostics.length === 1 ? '' : 's'}`;
+    }
+    return `CRD schema loaded · ${bundle?.tag ?? version}`;
+  }
+  $: statusText = createStatusCopy(auditState, gatewayApiVersion, gatewayApiBundle);
+
+  function applyFilters(value: CoverageGraph) {
     const allowedRouteIds = new Set(
-      g.routeCoverage
-        .filter((rc: RouteCoverageDetail) => {
-          if (filterKind !== 'ALL' && rc.kind !== filterKind) return false;
-          if (filterCoverage === 'COVERED' && !rc.covered) return false;
-            if (filterCoverage === 'UNCOVERED' && rc.covered) return false;
+      value.routeCoverage
+        .filter((route: RouteCoverageDetail) => {
+          if (filterKind !== 'ALL' && route.kind !== filterKind) return false;
+          if (filterCoverage === 'COVERED' && !route.covered) return false;
+          if (filterCoverage === 'UNCOVERED' && route.covered) return false;
           if (searchTerm) {
-            const s = searchTerm.toLowerCase();
-            if (!rc.name.toLowerCase().includes(s) && !rc.namespace.toLowerCase().includes(s)) return false;
+            const search = searchTerm.toLowerCase();
+            if (!route.name.toLowerCase().includes(search) && !route.namespace.toLowerCase().includes(search)) return false;
           }
           return true;
         })
-        .map((rc: RouteCoverageDetail) => rc.id)
+        .map((route) => route.id),
     );
 
-      const nodes = g.nodes.filter((n: GraphNode) => {
-        if (filterKind === 'ALL') {
-          if (!searchTerm) return true;
-          return n.label.toLowerCase().includes(searchTerm.toLowerCase());
-        }
-        if (['HTTPRoute','TLSRoute','TCPRoute','GRPCRoute'].includes(filterKind)) {
-          if (n.type === 'route') {
-            // Only show routes of the selected kind
-            const rc = g.routeCoverage.find(r => r.id === n.id);
-            return rc?.kind === filterKind;
-          }
-          return false;
-        }
-        // For new node types
-        if (n.type === filterKind) {
-          if (!searchTerm) return true;
-          return n.label.toLowerCase().includes(searchTerm.toLowerCase());
-        }
-        return false;
-      });
-    const nodeIds = new Set(nodes.map((n: GraphNode) => n.id));
-    const edges = g.edges.filter((e: GraphEdge) => nodeIds.has(e.source) && nodeIds.has(e.target));
+    const nodes = value.nodes.filter((node: GraphNode) => {
+      if (filterKind === 'ALL') {
+        if (node.type === 'route' && !allowedRouteIds.has(node.id)) return false;
+        if (!searchTerm) return true;
+        return node.label.toLowerCase().includes(searchTerm.toLowerCase()) || node.type !== 'route';
+      }
+      if (['HTTPRoute', 'TLSRoute', 'TCPRoute', 'GRPCRoute'].includes(filterKind)) {
+        return node.type === 'route' && allowedRouteIds.has(node.id);
+      }
+      return node.type === filterKind && (!searchTerm || node.label.toLowerCase().includes(searchTerm.toLowerCase()));
+    });
+    const nodeIds = new Set(nodes.map((node: GraphNode) => node.id));
+    const edges = value.edges.filter((edge: GraphEdge) => nodeIds.has(edge.source) && nodeIds.has(edge.target));
     return { nodes, edges };
   }
 
-  function toElements(g: CoverageGraph) {
-    const { nodes, edges } = applyFilters(g);
-    // Dynamic sizing heuristic so labels are not clipped. We approximate text width
-    // by character count * an average char width (dependent on font size) plus padding.
-    function sizeFor(node: typeof nodes[number]) {
-      const label = node.label || '';
-      const fontSize = node.type === 'gateway' ? 12 : 10; // simple rule
-      const avgChar = fontSize * 0.6;
-      const baseWidth = label.length * avgChar;
-      const horizontalPadding = 16;
+  function toElements(value: CoverageGraph) {
+    const { nodes, edges } = applyFilters(value);
+    const mappedNodes = nodes.map((node: GraphNode) => {
+      const fontSize = node.type === 'gateway' ? 12 : 10;
       const minWidths: Record<string, number> = { gateway: 60, listener: 55, route: 50, gatewayclass: 60, service: 55, workload: 55, referencegrant: 70 };
-      const maxWidth = 240;
-      const width = Math.min(Math.max(baseWidth + horizontalPadding, minWidths[node.type] || 50), maxWidth);
       const baseHeights: Record<string, number> = { gateway: 40, listener: 34, route: 28, gatewayclass: 34, service: 32, workload: 32, referencegrant: 34 };
-      const height = baseHeights[node.type] || 30;
-      return { width, height };
-    }
-    const n = nodes.map((n: GraphNode) => {
-      const { width, height } = sizeFor(n);
-      return { data: { id: n.id, label: n.label, type: n.type, width, height } };
+      const label = String(node.label ?? '');
+      const width = Math.min(Math.max(label.length * fontSize * 0.6 + 16, minWidths[node.type] || 50), 240);
+      return { data: { id: node.id, label, type: node.type, width, height: baseHeights[node.type] || 30 } };
     });
-    const e = edges.map((e: GraphEdge) => ({ data: { id: e.id, source: e.source, target: e.target, type: e.type } }));
-    return [...n, ...e];
+    const mappedEdges = edges.map((edge: GraphEdge) => ({ data: { id: edge.id, source: edge.source, target: edge.target, type: edge.type } }));
+    return [...mappedNodes, ...mappedEdges];
   }
 
-  // Removed: fetchGraph/connectSSE (API mode deprecated)
-
-  function onYamlParse(event: CustomEvent<{ gateways: Gateway[]; routes: AnyRoute[]; services: Service[]; deployments: Deployment[]; statefulSets: StatefulSet[]; daemonSets: DaemonSet[]; gatewayClasses: GatewayClass[]; referenceGrants: ReferenceGrant[];}>) {
+  function onYamlParse(event: CustomEvent<{
+    gateways: Gateway[];
+    routes: AnyRoute[];
+    services: Service[];
+    deployments: Deployment[];
+    statefulSets: StatefulSet[];
+    daemonSets: DaemonSet[];
+    gatewayClasses: GatewayClass[];
+    referenceGrants: ReferenceGrant[];
+  }>) {
     const { gateways, routes, services, deployments, statefulSets, daemonSets, gatewayClasses, referenceGrants } = event.detail;
     rawGateways = gateways;
     rawRoutes = routes;
@@ -123,345 +179,298 @@
     rawGatewayClasses = gatewayClasses;
     rawReferenceGrants = referenceGrants;
     yamlErrors = [];
+
     try {
       graph = buildFullGraph({ gateways, routes, services, deployments, statefulSets, daemonSets, gatewayClasses, referenceGrants });
       elements = toElements(graph);
-    } catch (error: any) {
-      console.error('Error building graph:', error);
-      yamlErrors = [{ line: 1, column: 1, message: `Graph generation error: ${error.message}` }];
+      if (selectedId && !graph.nodes.some((node) => node.id === selectedId) && !graph.routeCoverage.some((route) => route.id === selectedId)) {
+        selectedId = null;
+        selectedObject = null;
+        sidebarOpen = false;
+      } else if (selectedId) {
+        selectedObject = findObject(selectedId, graph);
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      yamlErrors = [{ line: 1, column: 1, message: `Graph generation error: ${message}` }];
+      graph = null;
+      elements = [];
     }
   }
 
-  function onYamlError() {
-    // Clear graph if there are YAML errors
+  function onYamlError(event: CustomEvent<ParserIssue[]>) {
+    yamlErrors = event.detail;
     graph = null;
     elements = [];
   }
 
-  // Removed mode switching functions
+  function findObject(id: string, value: CoverageGraph): SelectedObject | null {
+    const originalFor = (targetId: string): KubernetesResource | null => {
+      if (targetId.startsWith('route:')) {
+        const [namespace, name] = targetId.slice('route:'.length).split('/');
+        return rawRoutes.find((route) => (route.metadata.namespace || 'default') === namespace && route.metadata.name === name) || null;
+      }
+      if (targetId.startsWith('gateway:')) {
+        const [namespace, name] = targetId.split(':listener:')[0].slice('gateway:'.length).split('/');
+        return rawGateways.find((gateway) => (gateway.metadata.namespace || 'default') === namespace && gateway.metadata.name === name) || null;
+      }
+      if (targetId.startsWith('service:')) {
+        const [namespace, name] = targetId.slice('service:'.length).split('/');
+        return rawServices.find((service) => (service.metadata.namespace || 'default') === namespace && service.metadata.name === name) || null;
+      }
+      if (targetId.startsWith('gatewayclass:')) {
+        const name = targetId.slice('gatewayclass:'.length);
+        return rawGatewayClasses.find((gatewayClass) => gatewayClass.metadata.name === name) || null;
+      }
+      if (targetId.startsWith('workload:')) {
+        const rest = targetId.slice('workload:'.length);
+        const separator = rest.indexOf(':');
+        const [namespace, kind] = rest.slice(0, separator).split('/');
+        const name = rest.slice(separator + 1);
+        if (kind === 'deployment') return rawDeployments.find((item) => (item.metadata.namespace || 'default') === namespace && item.metadata.name === name) || null;
+        if (kind === 'statefulset') return rawStatefulSets.find((item) => (item.metadata.namespace || 'default') === namespace && item.metadata.name === name) || null;
+        if (kind === 'daemonset') return rawDaemonSets.find((item) => (item.metadata.namespace || 'default') === namespace && item.metadata.name === name) || null;
+      }
+      return null;
+    };
 
-  // Duplicate onMount cleaned above (kept single initialization earlier)
-
-  let debounceHandle: any;
-  function refreshFilters() {
-    if (graph) elements = toElements(graph);
+    const coverage = value.routeCoverage.find((route) => route.id === id);
+    const graphObject = coverage || value.nodes.find((node) => node.id === id) || value.edges.find((edge) => edge.id === id) || null;
+    const original = originalFor(id);
+    return graphObject && original ? ({ ...graphObject, original } as SelectedObject) : graphObject;
   }
-  function onSearchInput(e: Event) {
-    pendingSearch = (e.target as HTMLInputElement).value;
-    clearTimeout(debounceHandle);
+
+  function selectResource(id: string | null, opener?: HTMLElement | null) {
+    selectedId = id || null;
+    selectionOpener = opener || null;
+    if (!selectedId || !graph) {
+      selectedObject = null;
+      sidebarOpen = false;
+      return;
+    }
+    selectedObject = findObject(selectedId, graph);
+    sidebarOpen = !!selectedObject;
+    if (opener) requestAnimationFrame(() => document.getElementById('resource-details-heading')?.focus());
+  }
+
+  function onGraphSelect(event: CustomEvent) {
+    const id = event.detail?.id || event.detail?.target?.id?.();
+    if (id) selectResource(id);
+  }
+
+  function closeSidebar() {
+    sidebarOpen = false;
+    requestAnimationFrame(() => selectionOpener?.focus());
+  }
+
+  let debounceHandle: ReturnType<typeof setTimeout> | null = null;
+  function onSearchInput(event: Event) {
+    pendingSearch = (event.target as HTMLInputElement).value;
+    if (debounceHandle) clearTimeout(debounceHandle);
     debounceHandle = setTimeout(() => {
       searchTerm = pendingSearch;
       refreshFilters();
     }, 250);
   }
 
-
-  function onSelect(evt: CustomEvent) {
-    const target = evt.detail?.target || evt.detail?.cyTarget;
-    if (!target) return;
-    selectedId = target.id();
-    if (!graph) return;
-    if (selectedId) selectedObject = findObject(selectedId, graph);
+  function refreshFilters() {
+    if (graph) elements = toElements(graph);
   }
 
-  function findObject(id: string, g: CoverageGraph): any {
-    function originalFor(targetId: string): any | null {
-      if (targetId.startsWith('route:')) {
-        const [, rest] = targetId.split(':');
-        const [ns, name] = rest.split('/');
-        return rawRoutes.find(r => (r.metadata.namespace || 'default') === ns && r.metadata.name === name) || null;
-      }
-      if (targetId.startsWith('gateway:')) {
-        const base = targetId.split(':listener:')[0];
-        const [, rest] = base.split(':');
-        const [ns, name] = rest.split('/');
-        return rawGateways.find(r => (r.metadata.namespace || 'default') === ns && r.metadata.name === name) || null;
-      }
-      if (targetId.startsWith('service:')) {
-        const [, rest] = targetId.split(':');
-        const [ns, name] = rest.split('/');
-        return rawServices.find(s => (s.metadata.namespace || 'default') === ns && s.metadata.name === name) || null;
-      }
-      if (targetId.startsWith('gatewayclass:')) {
-        const [, name] = targetId.split(':');
-        return rawGatewayClasses.find(gc => gc.metadata.name === name) || null;
-      }
-      if (targetId.startsWith('workload:')) {
-        // workload:ns/kindlower:name
-        const withoutPrefix = targetId.replace('workload:', '');
-        const firstColon = withoutPrefix.indexOf(':');
-        if (firstColon !== -1) {
-          const left = withoutPrefix.slice(0, firstColon); // ns/kindlower
-          const resourceName = withoutPrefix.slice(firstColon + 1);
-          const [ns, kindLower] = left.split('/');
-          const kind = (kindLower || '').toLowerCase();
-          if (kind === 'deployment') return rawDeployments.find(d => (d.metadata.namespace || 'default') === ns && d.metadata.name === resourceName) || null;
-          if (kind === 'statefulset') return rawStatefulSets.find(d => (d.metadata.namespace || 'default') === ns && d.metadata.name === resourceName) || null;
-          if (kind === 'daemonset') return rawDaemonSets.find(d => (d.metadata.namespace || 'default') === ns && d.metadata.name === resourceName) || null;
-        }
-      }
-      if (targetId.startsWith('grant:')) {
-        // grant edges reference cross-namespace; original is a ReferenceGrant possibly (not directly encoded). We skip for now.
-        return null;
-      }
-      return null;
-    }
-
-    const rc = g.routeCoverage.find((r: RouteCoverageDetail) => r.id === id);
-    if (rc) {
-      const original = originalFor(id);
-      return original ? { ...rc, original } : rc;
-    }
-    const node = g.nodes.find((n: GraphNode) => n.id === id);
-    if (node) {
-      const original = originalFor(id);
-      return original ? { ...node, original } : node;
-    }
-    const edge = g.edges.find((e: GraphEdge) => e.id === id);
-    return edge || null;
+  function resetFilters() {
+    searchTerm = '';
+    pendingSearch = '';
+    filterKind = 'ALL';
+    filterCoverage = 'ALL';
+    refreshFilters();
   }
 
   function updateLayout() {
-    layoutConfig = { name: layoutName, animate: true, animationDuration: 400 };
+    const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    layoutConfig = { name: layoutName, animate: !reduceMotion, animationDuration: reduceMotion ? 0 : 180 };
   }
 
-  function closeSidebar() { sidebarOpen = false; }
-  $: if (selectedObject) sidebarOpen = true;
-  const SIDEBAR_WIDTH = 320; // px
-
+  $: visibleNodes = graph ? applyFilters(graph).nodes : [];
 </script>
 
-<div class="min-h-screen flex flex-col">
-  <header class="navbar bg-base-200 shadow">
-    <div class="navbar-start px-4 flex items-center gap-3">
-      <h1 class="text-xl font-bold flex items-center gap-2">
-        Gateway API Visualizer
-        <span class="badge badge-outline text-xs font-normal" title={`Version ${__APP_VERSION__} (commit ${__GIT_HASH__})`}>{__APP_VERSION__}<span class="opacity-60 ml-1">{__GIT_HASH__}</span></span>
-      </h1>
+<div class="app-shell min-h-screen">
+  <header class="app-header">
+    <div class="brand-lockup">
+      <h1>Gateway API Visualizer</h1>
+      <span class="build-badge" title={`Application version ${__APP_VERSION__}, commit ${__GIT_HASH__}`}>{__APP_VERSION__} · {__GIT_HASH__}</span>
     </div>
-    <div class="navbar-end pr-4 flex items-center gap-3">
-      <ThemeToggle />
-    </div>
+    <ThemeToggle />
   </header>
-  <!-- Main Content -->
-  <!-- Updated width: use 80% of viewport on medium+ screens, full width on small screens -->
-  <main class="mx-auto p-4 flex-1 flex flex-col min-h-0 w-full md:w-[80vw]">
-      <!-- YAML Editor + Graph Mode (single mode) -->
-      {#if graph}
-        <!-- Summary Stats -->
-        <div class="stats shadow mb-6 bg-base-200">
-          <div class="stat">
-            <div class="stat-figure text-primary">
-              <svg class="w-8 h-8" fill="currentColor" viewBox="0 0 20 20">
-                <path fill-rule="evenodd" d="M3 4a1 1 0 011-1h4a1 1 0 010 2H6.414l2.293 2.293a1 1 0 11-1.414 1.414L5 6.414V8a1 1 0 01-2 0V4zm9 1a1 1 0 010-2h4a1 1 0 011 1v4a1 1 0 01-2 0V6.414l-2.293 2.293a1 1 0 11-1.414-1.414L13.586 5H12z" clip-rule="evenodd"></path>
-              </svg>
-            </div>
-            <div class="stat-title">Gateways</div>
-            <div class="stat-value text-primary">{graph.summary.gateways}</div>
-          </div>
-          
-          <div class="stat">
-            <div class="stat-figure text-secondary">
-              <svg class="w-8 h-8" fill="currentColor" viewBox="0 0 20 20">
-                <path fill-rule="evenodd" d="M12.316 3.051a1 1 0 01.633 1.265l-4 12a1 1 0 11-1.898-.632l4-12a1 1 0 011.265-.633zM5.707 6.293a1 1 0 010 1.414L3.414 10l2.293 2.293a1 1 0 11-1.414 1.414l-3-3a1 1 0 010-1.414l3-3a1 1 0 011.414 0zm8.586 0a1 1 0 011.414 0l3 3a1 1 0 010 1.414l-3 3a1 1 0 11-1.414-1.414L16.586 10l-2.293-2.293a1 1 0 010-1.414z" clip-rule="evenodd"></path>
-              </svg>
-            </div>
-            <div class="stat-title">Routes</div>
-            <div class="stat-value text-secondary">{graph.summary.routes}</div>
-          </div>
-          
-          <div class="stat">
-            <div class="stat-figure text-success">
-              <svg class="w-8 h-8" fill="currentColor" viewBox="0 0 20 20">
-                <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path>
-              </svg>
-            </div>
-            <div class="stat-title">Covered Routes</div>
-            <div class="stat-value text-success">{graph.summary.coveredRoutes}</div>
-          </div>
-          
-          <div class="stat">
-            <div class="stat-figure text-error">
-              <svg class="w-8 h-8" fill="currentColor" viewBox="0 0 20 20">
-                <path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd"></path>
-              </svg>
-            </div>
-            <div class="stat-title">Coverage</div>
-            <div class="stat-value text-accent">{graph.summary.coveragePercent.toFixed(1)}%</div>
-          </div>
-        </div>
-      {/if}
 
-      <!-- Filters (same as API mode) -->
-      {#if graph}
-      <div class="card bg-base-200 shadow-lg mb-6">
-        <div class="card-body">
-          <div class="flex flex-wrap gap-4 items-center">
-            <div class="form-control flex-1 min-w-64">
-              <input 
-                type="text" 
-                placeholder="Search (name/namespace)" 
-                class="input input-bordered w-full" 
-                bind:value={pendingSearch} 
-                on:input={onSearchInput} 
-              />
-            </div>
-            <div class="form-control">
+  <main class="workbench">
+    <section class="audit-panel" aria-labelledby="audit-target-title">
+      <div class="audit-toolbar">
+        <div class="audit-heading">
+          <span class="eyebrow">Audit target</span>
+          <h2 id="audit-target-title">Gateway API compatibility</h2>
+        </div>
+        <div class="form-control version-control">
+          <label for="gateway-api-version">Gateway API version</label>
+          <select id="gateway-api-version" class="select select-bordered" value={gatewayApiVersion} on:change={onVersionChange}>
+            {#each gatewayApiReleases as release}
+              <option value={release.id}>{release.id}</option>
+            {/each}
+          </select>
+        </div>
+        <span class="channel-badge">Standard + experimental</span>
+        <div
+          class:status-error={auditState.status === 'error'}
+          class:status-warning={auditState.status === 'ready' && auditState.diagnostics.length > 0}
+          class="audit-status"
+          data-testid="gateway-api-status"
+          data-version={gatewayApiVersion}
+          data-state={auditState.status}
+          aria-live="polite"
+        >
+          <span class:loading-dot={auditState.status === 'loading'}></span>
+          <span>{statusText}</span>
+          {#if auditState.status === 'error'}
+            <button class="btn btn-sm btn-outline" type="button" on:click={() => selectGatewayApiVersion(gatewayApiVersion)}>Retry</button>
+          {/if}
+        </div>
+      </div>
+      {#if gatewayApiBundle && auditState.status === 'ready' && auditState.version === gatewayApiVersion}
+        <GatewayApiSupport bundle={gatewayApiBundle} />
+      {:else if auditState.status === 'loading'}
+        <div class="support-skeleton" aria-hidden="true"><span></span><span></span><span></span></div>
+      {/if}
+    </section>
+
+    {#if graph}
+      <section class="resource-summary" aria-label="Resource summary">
+        <dl>
+          <div><dt>Gateways</dt><dd>{graph.summary.gateways}</dd></div>
+          <div><dt>Routes</dt><dd>{graph.summary.routes}</dd></div>
+          <div><dt>With parent refs</dt><dd>{graph.summary.coveredRoutes}</dd></div>
+          <div><dt>Parent-ref coverage</dt><dd>{graph.summary.coveragePercent.toFixed(1)}%</dd></div>
+        </dl>
+        <p>A parent reference shows intent, not proof that a controller accepted the attachment.</p>
+      </section>
+    {/if}
+
+    <div class:with-details={sidebarOpen} class="workspace-grid">
+      <section class="work-region manifest-region" aria-labelledby="manifest-title">
+        <header class="region-header"><h2 id="manifest-title">Manifest</h2></header>
+        <div class="region-content">
+          <YamlEditor
+            bind:this={yamlEditor}
+            {gatewayApiVersion}
+            {gatewayApiBundle}
+            {gatewayApiLoadError}
+            on:parse={onYamlParse}
+            on:error={onYamlError}
+            on:audit={onAudit}
+          />
+        </div>
+      </section>
+
+      <section class="work-region topology-region" aria-labelledby="relationships-title">
+        <header class="region-header topology-header">
+          <div><h2 id="relationships-title">Relationships</h2><span class="region-note">Local relationship preview</span></div>
+          <div class="topology-controls" aria-label="Relationship graph controls">
+            <label>Search <input class="input input-bordered" type="search" placeholder="Name or namespace" bind:value={pendingSearch} on:input={onSearchInput} /></label>
+            <label>Kind
               <select class="select select-bordered" bind:value={filterKind} on:change={refreshFilters}>
-                <option value="ALL">All Kinds</option>
-                <option value="HTTPRoute">HTTPRoute</option>
-                <option value="TLSRoute">TLSRoute</option>
-                <option value="TCPRoute">TCPRoute</option>
-                <option value="GRPCRoute">GRPCRoute</option>
+                <option value="ALL">All kinds</option><option value="HTTPRoute">HTTPRoute</option><option value="TLSRoute">TLSRoute</option><option value="TCPRoute">TCPRoute</option><option value="GRPCRoute">GRPCRoute</option>
               </select>
-            </div>
-            <div class="form-control">
+            </label>
+            <label>Parent refs
               <select class="select select-bordered" bind:value={filterCoverage} on:change={refreshFilters}>
-                <option value="ALL">All Coverage</option>
-                <option value="COVERED">Covered</option>
-                <option value="UNCOVERED">Uncovered</option>
+                <option value="ALL">All routes</option><option value="COVERED">Has parent ref</option><option value="UNCOVERED">No parent ref</option>
               </select>
-            </div>
-            <div class="form-control">
+            </label>
+            <label>Layout
               <select class="select select-bordered" bind:value={layoutName} on:change={updateLayout}>
-                <option value="breadthfirst">Breadthfirst</option>
-                <option value="grid">Grid</option>
-                <option value="circle">Circle</option>
-                <option value="concentric">Concentric</option>
-                <option value="cose">CoSE</option>
+                <option value="breadthfirst">Breadthfirst</option><option value="grid">Grid</option><option value="circle">Circle</option><option value="concentric">Concentric</option><option value="cose">CoSE</option>
+              </select>
+            </label>
+            <div class="control-group inspect-control">
+              <label for="inspect-resource">Inspect resource</label>
+              <select id="inspect-resource" class="select select-bordered" value={selectedId || ''} on:change={(event) => selectResource((event.currentTarget as HTMLSelectElement).value, event.currentTarget as HTMLElement)}>
+                <option value="">Choose a resource</option>
+                {#each visibleNodes as node}<option value={node.id}>{node.type}: {node.label}</option>{/each}
               </select>
             </div>
-            <button class="btn btn-outline" on:click={() => { searchTerm=''; pendingSearch=''; filterKind='ALL'; filterCoverage='ALL'; refreshFilters(); }}>
-              Reset
-            </button>
+            <button type="button" class="btn btn-outline" on:click={resetFilters}>Reset graph filters</button>
           </div>
-        </div>
-      </div>
-      {/if}
-      
-    <!-- Editor + Graph + Sidebar Layout (fill remaining height) -->
-  <div class="flex flex-row flex-nowrap gap-6 flex-1 min-h-0 relative overflow-hidden">
-        <!-- YAML Editor Panel -->
-  <div class="card bg-base-200 shadow-lg flex flex-col flex-1 min-h-0 min-w-[320px] overflow-hidden">
-          <div class="card-body p-0 flex flex-col flex-1 min-h-0">
-            <div class="flex items-center justify-between p-4 border-b border-base-300">
-              <h2 class="card-title text-lg">📝 YAML Editor</h2>
-              <div class="flex items-center gap-2">
-                {#if yamlErrors.length > 0}
-                  <div class="badge badge-error gap-2">
-                    <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                      <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clip-rule="evenodd"></path>
-                    </svg>
-                    {yamlErrors.length} error{yamlErrors.length !== 1 ? 's' : ''}
-                  </div>
-                {:else if graph && (graph.summary.gateways > 0 || graph.summary.routes > 0)}
-                  <div class="badge badge-success gap-2">
-                    <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                      <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path>
-                    </svg>
-                    {graph.summary.gateways} gateway{graph.summary.gateways !== 1 ? 's' : ''}, 
-                    {graph.summary.routes} route{graph.summary.routes !== 1 ? 's' : ''}
-                  </div>
-                {:else}
-                  <div class="badge badge-ghost">Ready</div>
-                {/if}
-              </div>
+        </header>
+        <div class="region-content topology-canvas">
+          {#if graph && elements.length > 0}
+            <Graph {elements} layout={layoutConfig} on:select={onGraphSelect} externalSelect={selectedId} />
+          {:else}
+            <div class="empty-state">
+              <h3>{yamlErrors.length ? 'Manifest parsing paused' : 'No relationships yet'}</h3>
+              <p>{yamlErrors.length ? 'Correct the YAML syntax to rebuild the relationship preview.' : 'Paste a manifest or insert a sample to map Gateway API resources.'}</p>
             </div>
-            
-            <div class="flex-1 min-h-0 min-w-0">
-              <YamlEditor 
-                bind:this={yamlEditor}
-                on:parse={onYamlParse}
-                on:error={onYamlError}
-              />
-            </div>
-            
-            {#if yamlErrors.length > 0}
-              <div class="p-4 border-t border-base-300">
-                <div class="alert alert-error">
-                  <svg class="w-6 h-6" fill="currentColor" viewBox="0 0 20 20">
-                    <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clip-rule="evenodd"></path>
-                  </svg>
-                  <div>
-                    <h3 class="font-bold">Validation Errors:</h3>
-                    <div class="text-sm mt-1">
-                      {#each yamlErrors as error}
-                        <div>Line {error.line}: {error.message}</div>
-                      {/each}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            {/if}
-          </div>
-        </div>
-        
-    <!-- Graph Panel -->
-  <div class="card bg-base-200 shadow-lg flex flex-col flex-1 min-h-0 min-w-[320px] overflow-hidden">
-          <div class="card-body p-0 flex flex-col flex-1 min-h-0">
-            <div class="flex items-center justify-between p-4 border-b border-base-300">
-              <h2 class="card-title text-lg">📊 Graph Visualization</h2>
-              {#if graph && elements.length > 0}
-                <div class="form-control">
-                  <select class="select select-sm select-bordered" bind:value={layoutName} on:change={updateLayout}>
-                    <option value="breadthfirst">Breadthfirst</option>
-                    <option value="grid">Grid</option>
-                    <option value="circle">Circle</option>
-                    <option value="concentric">Concentric</option>
-                    <option value="cose">CoSE</option>
-                  </select>
-                </div>
-              {/if}
-            </div>
-            
-            <div class="flex-1 relative min-h-0 min-w-0 overflow-hidden">
-              {#if !sidebarOpen && graph && elements.length > 0}
-                <button class="lg:hidden btn btn-xs btn-outline absolute top-2 right-2 z-20" on:click={() => sidebarOpen = true}>Details</button>
-              {/if}
-              {#if graph && elements.length > 0}
-                <Graph elements={elements} layout={layoutConfig} on:select={onSelect} externalSelect={tableSelectedRouteId} />
-              {:else}
-                <div class="flex items-center justify-center h-full">
-                  <div class="text-center">
-                    <div class="text-6xl mb-4 opacity-20">📊</div>
-                    <p class="text-base-content/60">
-                      {yamlErrors.length > 0 ? 'Fix YAML errors to see graph' : 'Enter YAML content to generate graph'}
-                    </p>
-                  </div>
-                </div>
-              {/if}
-            </div>
-          </div>
-        </div>
-        <!-- Sidebar (positioned in normal flow on large screens) -->
-  <div class="hidden lg:flex h-full shrink-0 transition-all duration-300" style="width: {sidebarOpen ? SIDEBAR_WIDTH : 0}px;">
-          {#if sidebarOpen}
-            <DetailsSidebar bind:open={sidebarOpen} selected={selectedObject} on:close={closeSidebar} />
           {/if}
         </div>
-        <!-- Mobile overlay version -->
-        <div class="lg:hidden absolute top-0 right-0 h-full" style="width: {SIDEBAR_WIDTH}px; pointer-events: {sidebarOpen ? 'auto':'none'};">
-          {#if sidebarOpen}
-            <DetailsSidebar bind:open={sidebarOpen} selected={selectedObject} on:close={closeSidebar} />
-          {/if}
-        </div>
-        <!-- Toggle button for mobile when closed -->
-      </div>
+      </section>
 
-      {#if graph}
-        <RouteCoverageTable rows={graph.routeCoverage} on:routeSelect={(e) => {
-          tableSelectedRouteId = e.detail.id;
-          // update selection context
-          const id = e.detail.id;
-          if (graph) {
-            selectedId = id;
-            selectedObject = findObject(id, graph);
-          }
-        }} />
+      {#if sidebarOpen}
+        <div class="details-region">
+          <DetailsSidebar open={sidebarOpen} selected={selectedObject} on:close={closeSidebar} />
+        </div>
       {/if}
-      
-    
+    </div>
+
+    {#if graph}
+      <RouteCoverageTable rows={graph.routeCoverage} on:routeSelect={(event) => selectResource(event.detail.id, document.activeElement as HTMLElement)} />
+    {/if}
   </main>
 </div>
 
-<!-- Modal removed; details shown in sidebar -->
+<style>
+  .app-shell { color: var(--color-base-content); background: var(--color-base-100); }
+  .app-header { min-height: 58px; padding: 0 24px; display: flex; align-items: center; justify-content: space-between; gap: 16px; border-bottom: 1px solid var(--color-base-300); background: var(--color-base-50); }
+  .brand-lockup { min-width: 0; display: flex; align-items: baseline; gap: 12px; }
+  .brand-lockup h1 { margin: 0; font-size: 1.125rem; font-weight: 600; letter-spacing: -0.01em; }
+  .build-badge { color: var(--color-secondary); font: 0.75rem/1.2 ui-monospace, SFMono-Regular, Consolas, monospace; }
+  .workbench { width: min(100%, 1800px); margin: 0 auto; padding: 20px 24px 32px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; }
+  .audit-panel, .resource-summary, .work-region, .details-region { border: 1px solid var(--color-base-300); border-radius: 6px; background: var(--color-base-50); }
+  .audit-toolbar { min-height: 72px; padding: 12px 16px; display: flex; flex-wrap: wrap; align-items: center; gap: 12px 16px; }
+  .audit-heading { min-width: 210px; margin-right: auto; }
+  .eyebrow, .region-note { color: var(--color-secondary); font-size: 0.75rem; }
+  .audit-heading h2, .region-header h2 { margin: 2px 0 0; font-size: 1rem; font-weight: 600; }
+  .version-control { display: grid; grid-template-columns: auto auto; align-items: center; gap: 8px; }
+  .version-control label, .topology-controls label { font-size: 0.75rem; color: var(--color-secondary); }
+  .channel-badge { padding: 5px 8px; border: 1px solid var(--color-base-300); border-radius: 999px; color: var(--color-secondary); font-size: 0.75rem; }
+  .audit-status { min-height: 36px; display: flex; align-items: center; gap: 8px; color: var(--color-success); font-size: 0.8125rem; }
+  .status-warning { color: var(--color-warning-text, var(--color-base-content)); }
+  .status-error { color: var(--color-error); }
+  .loading-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--color-primary); opacity: .5; animation: pulse 1s ease-in-out infinite alternate; }
+  .support-skeleton { padding: 0 16px 14px; display: flex; gap: 8px; }
+  .support-skeleton span { height: 8px; border-radius: 4px; background: var(--color-base-200); }
+  .support-skeleton span:nth-child(1) { width: 18%; } .support-skeleton span:nth-child(2) { width: 30%; } .support-skeleton span:nth-child(3) { width: 12%; }
+  .resource-summary { padding: 12px 16px; }
+  .resource-summary dl { margin: 0; display: flex; flex-wrap: wrap; gap: 12px 32px; }
+  .resource-summary dl div { display: flex; align-items: baseline; gap: 8px; }
+  .resource-summary dt { color: var(--color-secondary); font-size: 0.75rem; }
+  .resource-summary dd { margin: 0; font-size: 1rem; font-weight: 600; }
+  .resource-summary p { margin: 6px 0 0; color: var(--color-secondary); font-size: 0.75rem; }
+  .workspace-grid { display: grid; grid-template-columns: minmax(360px, 1fr) minmax(420px, 1.15fr); gap: 16px; align-items: stretch; }
+  .workspace-grid.with-details { grid-template-columns: minmax(360px, 1fr) minmax(420px, 1.15fr); }
+  .work-region { min-width: 0; height: clamp(420px, 58vh, 760px); display: flex; flex-direction: column; overflow: hidden; }
+  .region-header { min-height: 50px; padding: 10px 14px; border-bottom: 1px solid var(--color-base-300); display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  .topology-header { min-height: auto; align-items: flex-start; flex-wrap: wrap; }
+  .topology-controls { display: flex; flex-wrap: wrap; align-items: end; justify-content: flex-end; gap: 8px; }
+  .topology-controls label, .topology-controls .control-group { display: grid; gap: 3px; }
+  .topology-controls .input, .topology-controls .select, .topology-controls .btn { min-height: 36px; height: 36px; font-size: 0.75rem; }
+  .topology-controls .input { width: 150px; }
+  .region-content { flex: 1; min-height: 0; min-width: 0; }
+  .topology-canvas { position: relative; }
+  .details-region { min-width: 0; overflow: hidden; }
+  .empty-state { height: 100%; display: grid; place-content: center; padding: 24px; text-align: center; color: var(--color-secondary); }
+  .empty-state h3 { margin: 0 0 6px; color: var(--color-base-content); font-size: 1rem; }
+  .empty-state p { max-width: 42ch; margin: 0; }
+  @media (min-width: 1440px) { .workspace-grid.with-details { grid-template-columns: minmax(360px, 1fr) minmax(420px, 1.15fr) 300px; } }
+  @media (min-width: 1100px) and (max-width: 1439px) { .details-region { grid-column: 2; min-height: 280px; } .workspace-grid.with-details .topology-region { height: 440px; } }
+  @media (max-width: 1099px) { .workbench { padding: 16px; } .workspace-grid, .workspace-grid.with-details { grid-template-columns: minmax(0, 1fr); } .work-region { height: 420px; } .topology-region { height: 360px; } .details-region { min-height: 280px; } .topology-controls { justify-content: flex-start; } }
+  @media (max-width: 600px) { .app-header { padding: 0 16px; } .brand-lockup { display: grid; gap: 2px; } .audit-toolbar { align-items: flex-start; } .audit-heading { width: 100%; } .version-control { grid-template-columns: 1fr; } .audit-status { width: 100%; } .topology-controls { display: grid; grid-template-columns: 1fr 1fr; width: 100%; } .topology-controls label:first-child, .topology-controls .inspect-control, .topology-controls .btn { grid-column: 1 / -1; } .topology-controls .input, .topology-controls .select, .topology-controls .btn { width: 100%; min-height: 44px; height: 44px; } }
+  @keyframes pulse { to { opacity: 1; } }
+  @media (prefers-reduced-motion: reduce) { .loading-dot { animation: none; opacity: 1; } }
+</style>

@@ -1,162 +1,211 @@
 <script lang="ts">
   import { onMount, onDestroy, createEventDispatcher } from 'svelte';
   import '../monaco-workers';
-  // Register Monaco's public codicon styles without loading the full language bundle.
   import 'monaco-editor/features/codicon/register.js';
-  // Lazy loaded monaco
-  let monaco: typeof import('monaco-editor/editor') | null = null;
-  let yamlReady = false;
-  // Track current detected language for UI badge
-  let currentLanguage: 'YAML' | 'JSON' = 'YAML';
   import * as yaml from 'js-yaml';
-  import type { Gateway, AnyRoute, Service, Deployment, StatefulSet, DaemonSet, GatewayClass, ReferenceGrant } from './shared.js';
+  import type { MonacoYaml } from 'monaco-yaml';
+  import type {
+    Gateway,
+    AnyRoute,
+    Service,
+    Deployment,
+    StatefulSet,
+    DaemonSet,
+    GatewayClass,
+    ReferenceGrant,
+  } from './shared.js';
+  import type {
+    GatewayApiAuditState,
+    GatewayApiBundle,
+    GatewayApiDiagnostic,
+    GatewayApiVersion,
+  } from './gatewayApi.js';
   import { splitYamlDocumentsWithLocations } from './yamlDocuments.js';
   import { containsPotentialSecrets } from './secretDetection.js';
-
-  export let initialValue: string = '';
-  // height prop no longer used externally; removed to silence unused export warning
-  
-  let container: HTMLDivElement;
-  let resizeObserver: ResizeObserver | null = null;
-  let editor: monaco.editor.IStandaloneCodeEditor | null = null;
-  let validationErrors: Array<{ line: number; column: number; message: string }> = [];
-  let parsedObjects: { 
-    gateways: Gateway[]; 
-    routes: AnyRoute[]; 
-    services: Service[]; 
-    deployments: Deployment[]; 
-    statefulSets: StatefulSet[]; 
-    daemonSets: DaemonSet[]; 
-    gatewayClasses: GatewayClass[];
-    referenceGrants: ReferenceGrant[];
-  } = { gateways: [], routes: [], services: [], deployments: [], statefulSets: [], daemonSets: [], gatewayClasses: [], referenceGrants: [] };
-  let selectedSample: 'basic' | 'multi' = 'basic';
-  let secretDetected: { reasons: string[] } | null = null; // if secrets suspected, editor cleared
-  let debounceHandle: ReturnType<typeof setTimeout> | null = null;
-  const DEBOUNCE_MS = 350; // adjust as needed for responsiveness vs load
-  const FOCUS_COOLDOWN_MS = 250; // window after refocus during which we ensure only one validation
-  let lastFocusTime = 0;
-  // Collapsible error panel state
-  let errorsExpanded = false;
-  // Import sample YAML files as raw text so we don't rely on fetch paths that may map to index.html
-  // Using relative paths to repo root; Vite should allow this in monorepo workspace. If not, fallback could move samples under /public.
   // @ts-ignore - raw import query
   import basicSample from '../../data/sample.yaml?raw';
   // @ts-ignore - raw import query
   import multiSample from '../../data/sample-multi-gateways.yaml?raw';
-  
+
+  type ParsedObjects = {
+    gateways: Gateway[];
+    routes: AnyRoute[];
+    services: Service[];
+    deployments: Deployment[];
+    statefulSets: StatefulSet[];
+    daemonSets: DaemonSet[];
+    gatewayClasses: GatewayClass[];
+    referenceGrants: ReferenceGrant[];
+  };
+
+  type ParserDiagnostic = { line: number; column: number; message: string };
+  type SchemaRequest = {
+    generation: number;
+    version: GatewayApiVersion;
+    bundle: GatewayApiBundle | null;
+    loadError: string | null;
+  };
+  type Disposable = { dispose(): void };
+
+
+  const EMPTY_PARSED_OBJECTS = (): ParsedObjects => ({
+    gateways: [],
+    routes: [],
+    services: [],
+    deployments: [],
+    statefulSets: [],
+    daemonSets: [],
+    gatewayClasses: [],
+    referenceGrants: [],
+  });
+  const GATEWAY_API_GROUPS = new Set([
+    'gateway.networking.k8s.io',
+    'gateway.networking.x-k8s.io',
+  ]);
+  const DEBOUNCE_MS = 350;
+  const FOCUS_COOLDOWN_MS = 250;
+
+  export let initialValue = '';
+  export let gatewayApiVersion: GatewayApiVersion = '1.6';
+  export let gatewayApiBundle: GatewayApiBundle | null = null;
+  export let gatewayApiLoadError: string | null = null;
+
+  let container: HTMLDivElement;
+  let monaco: typeof import('monaco-editor/editor') | null = null;
+  let editor: import('monaco-editor/editor').editor.IStandaloneCodeEditor | null = null;
+  let yamlService: MonacoYaml | null = null;
+  let resizeObserver: ResizeObserver | null = null;
+  let themeObserver: MutationObserver | null = null;
+  let markerSubscription: Disposable | null = null;
+  let editorDisposables: Disposable[] = [];
+  let debounceHandle: ReturnType<typeof setTimeout> | null = null;
+  let layoutHandle: number | null = null;
+  let delayedLayoutHandle: ReturnType<typeof setTimeout> | null = null;
+  let mounted = false;
+  let destroyed = false;
+  let schemaUpdateInFlight = false;
+  let schemaUpdateGeneration = 0;
+  let activeSchemaGeneration = 0;
+  let yamlServiceConfigured = false;
+  let validatorInitializationInProgress = false;
+  let validatorInitializationFailed = false;
+
+  let activeSchemaVersion: GatewayApiVersion | null = null;
+  let pendingSchemaRequest: SchemaRequest | null = null;
+
+  let currentLanguage: 'YAML' | 'JSON' = 'YAML';
+  let validationErrors: ParserDiagnostic[] = [];
+  let crdDiagnostics: GatewayApiDiagnostic[] = [];
+  let parsedObjects: ParsedObjects = EMPTY_PARSED_OBJECTS();
+  let selectedSample: 'basic' | 'multi' = 'basic';
+  let secretDetected: { reasons: string[] } | null = null;
+  let lastFocusTime = 0;
+  let errorsExpanded = false;
+  let crdDiagnosticsExpanded = false;
+
   const dispatch = createEventDispatcher<{
-    parse: typeof parsedObjects;
-    error: Array<{ line: number; column: number; message: string }>;
+    parse: ParsedObjects;
+    error: ParserDiagnostic[];
+    audit: GatewayApiAuditState;
   }>();
 
-  onMount(async () => {
-    if (!monaco) {
+  $: queueSchemaUpdate(gatewayApiVersion, gatewayApiBundle, gatewayApiLoadError);
+  $: if (validationErrors.length > 0 && !errorsExpanded) errorsExpanded = true;
+  $: if (crdDiagnostics.length > 0 && !crdDiagnosticsExpanded) crdDiagnosticsExpanded = true;
+
+  onMount(() => {
+    mounted = true;
+    void initializeEditor();
+  });
+
+  onDestroy(() => {
+    destroyed = true;
+    mounted = false;
+    if (debounceHandle) clearTimeout(debounceHandle);
+    if (delayedLayoutHandle) clearTimeout(delayedLayoutHandle);
+    if (layoutHandle !== null) cancelAnimationFrame(layoutHandle);
+    resizeObserver?.disconnect();
+    themeObserver?.disconnect();
+    markerSubscription?.dispose();
+    editorDisposables.forEach(disposable => disposable.dispose());
+    editorDisposables = [];
+    const model = editor?.getModel();
+    editor?.dispose();
+    model?.dispose();
+    yamlService?.dispose();
+    editor = null;
+    yamlService = null;
+  });
+
+  async function initializeEditor() {
+    if (validatorInitializationInProgress || yamlServiceConfigured) return;
+    validatorInitializationInProgress = true;
+    try {
       monaco = await import('monaco-editor/editor');
-    }
-    if (!yamlReady) {
-      try {
-        const { configureMonacoYaml } = await import('monaco-yaml');
-        const gatewayApiCompositeSchema = {
-          $id: 'inmemory://schema/gateway-api.json',
-          type: 'object',
-          oneOf: [
-            { $ref: '#/definitions/Gateway' },
-            { $ref: '#/definitions/HTTPRoute' },
-              { $ref: '#/definitions/TLSRoute' },
-              { $ref: '#/definitions/TCPRoute' },
-              { $ref: '#/definitions/GRPCRoute' }
-          ],
-          definitions: {
-            BaseMetadata: {
-              type: 'object',
-              required: ['name'],
-              properties: {
-                name: { type: 'string', minLength: 1 },
-                namespace: { type: 'string' },
-                labels: { type: 'object', additionalProperties: { type: 'string' } },
-                annotations: { type: 'object', additionalProperties: { type: 'string' } }
-              }
-            },
-            Gateway: {
-              type: 'object',
-              required: ['apiVersion','kind','metadata','spec'],
-              properties: {
-                apiVersion: { const: 'gateway.networking.k8s.io/v1beta1' },
-                kind: { const: 'Gateway' },
-                metadata: { $ref: '#/definitions/BaseMetadata' },
-                spec: { type: 'object', properties: {}, additionalProperties: true }
-              }
-            },
-            HTTPRoute: {
-              type: 'object',
-              required: ['apiVersion','kind','metadata','spec'],
-              properties: {
-                apiVersion: { const: 'gateway.networking.k8s.io/v1beta1' },
-                kind: { const: 'HTTPRoute' },
-                metadata: { $ref: '#/definitions/BaseMetadata' },
-                spec: { type: 'object', properties: {}, additionalProperties: true }
-              }
-            },
-            TLSRoute: {
-              type: 'object',
-              required: ['apiVersion','kind','metadata','spec'],
-              properties: {
-                apiVersion: { const: 'gateway.networking.k8s.io/v1beta1' },
-                kind: { const: 'TLSRoute' },
-                metadata: { $ref: '#/definitions/BaseMetadata' },
-                spec: { type: 'object', properties: {}, additionalProperties: true }
-              }
-            },
-            TCPRoute: {
-              type: 'object',
-              required: ['apiVersion','kind','metadata','spec'],
-              properties: {
-                apiVersion: { const: 'gateway.networking.k8s.io/v1beta1' },
-                kind: { const: 'TCPRoute' },
-                metadata: { $ref: '#/definitions/BaseMetadata' },
-                spec: { type: 'object', properties: {}, additionalProperties: true }
-              }
-            },
-            GRPCRoute: {
-              type: 'object',
-              required: ['apiVersion','kind','metadata','spec'],
-              properties: {
-                apiVersion: { const: 'gateway.networking.k8s.io/v1beta1' },
-                kind: { const: 'GRPCRoute' },
-                metadata: { $ref: '#/definitions/BaseMetadata' },
-                spec: { type: 'object', properties: {}, additionalProperties: true }
-              }
-            }
-          }
-        };
-        configureMonacoYaml(monaco, {
-          enableSchemaRequest: false,
-          hover: true,
-          completion: true,
-          validate: true,
-          format: true,
-          schemas: [
-            {
-              uri: 'inmemory://schema/gateway-api.json',
-              fileMatch: ['*'],
-              schema: gatewayApiCompositeSchema
-            }
-          ]
-        });
-        yamlReady = true;
-      } catch (e) {
-        console.error('Failed to load monaco-yaml configureMonacoYaml', e);
+      if (destroyed) return;
+
+      const { configureMonacoYaml } = await import('monaco-yaml');
+      if (destroyed || !monaco) return;
+      yamlService = configureMonacoYaml(monaco, {
+        enableSchemaRequest: false,
+        hover: true,
+        completion: true,
+        validate: true,
+        format: { enable: true },
+        schemas: [],
+      });
+      yamlServiceConfigured = true;
+      validatorInitializationFailed = false;
+
+
+      if (!monaco.languages.getLanguages().some(language => language.id === 'yaml')) {
+        monaco.languages.register({ id: 'yaml' });
       }
+      configureYamlTokens();
+      configureThemes();
+
+      const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+      editor = monaco.editor.create(container, {
+        value: initialValue,
+        language: 'yaml',
+        theme: isDark ? 'yamlDark' : 'yamlLight',
+        automaticLayout: true,
+        minimap: { enabled: false },
+        scrollBeyondLastLine: false,
+        wordWrap: 'on',
+        lineNumbers: 'on',
+        folding: true,
+        fontSize: 14,
+        fontFamily: "'JetBrains Mono', 'Fira Code', 'Consolas', 'Monaco', 'Courier New', monospace",
+        lineHeight: 1.6,
+        padding: { top: 16, bottom: 16 },
+      });
+
+      layoutHandle = requestAnimationFrame(() => editor?.layout());
+      delayedLayoutHandle = setTimeout(() => editor?.layout(), 250);
+      setupEditorObservers();
+      detectLanguageForBadge();
+      validateContent();
+      processSchemaUpdates();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (!yamlServiceConfigured) validatorInitializationFailed = true;
+      crdDiagnostics = [];
+      dispatch('audit', {
+        version: gatewayApiVersion,
+        status: 'error',
+        diagnostics: [],
+        message: `Could not initialize CRD validation: ${message}`,
+      });
+    } finally {
+      validatorInitializationInProgress = false;
     }
-    // Register language ids explicitly (guard against duplicates)
-    if (!monaco.languages.getLanguages().some(l => l.id === 'yaml')) {
-      monaco.languages.register({ id: 'yaml' });
-    }
-    // We don't add JSON language feature set (not bundled); keep id alias for potential future schema support
-    if (!monaco.languages.getLanguages().some(l => l.id === 'json')) {
-      monaco.languages.register({ id: 'json' });
-    }
+
+
+  }
+
+  function configureYamlTokens() {
+    if (!monaco) return;
     monaco.languages.setMonarchTokensProvider('yaml', {
       tokenizer: {
         root: [
@@ -170,12 +219,14 @@
           [/\d+/, 'number'],
           [/true|false/, 'keyword'],
           [/null/, 'keyword'],
-        ]
-      }
+        ],
+      },
     });
+  }
 
-    // Define light theme
-  monaco.editor.defineTheme('yamlLight', {
+  function configureThemes() {
+    if (!monaco) return;
+    monaco.editor.defineTheme('yamlLight', {
       base: 'vs',
       inherit: true,
       rules: [
@@ -188,16 +239,14 @@
         { token: 'tag', foreground: '800000' },
       ],
       colors: {
-        'editor.background': '#ffffff',
-        'editor.foreground': '#24292e',
-        'editor.lineHighlightBackground': '#f6f8fa',
-        'editorLineNumber.foreground': '#586069',
-        'editorLineNumber.activeForeground': '#24292e',
-      }
+        'editor.background': '#f8fbfb',
+        'editor.foreground': '#263738',
+        'editor.lineHighlightBackground': '#edf3f3',
+        'editorLineNumber.foreground': '#607679',
+        'editorLineNumber.activeForeground': '#263738',
+      },
     });
-
-    // Define dark theme  
-  monaco.editor.defineTheme('yamlDark', {
+    monaco.editor.defineTheme('yamlDark', {
       base: 'vs-dark',
       inherit: true,
       rules: [
@@ -210,269 +259,350 @@
         { token: 'tag', foreground: 'ffa657' },
       ],
       colors: {
-        'editor.background': '#0d1117',
-        'editor.foreground': '#e6edf3',
-        'editor.lineHighlightBackground': '#161b22',
-        'editorLineNumber.foreground': '#7d8590',
-        'editorLineNumber.activeForeground': '#e6edf3',
-      }
+        'editor.background': '#162526',
+        'editor.foreground': '#e6eeee',
+        'editor.lineHighlightBackground': '#26393b',
+        'editorLineNumber.foreground': '#9ab0b3',
+        'editorLineNumber.activeForeground': '#e6eeee',
+      },
     });
+  }
 
-    // Determine initial theme
-    const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
-    const theme = isDark ? 'yamlDark' : 'yamlLight';
-
-  editor = monaco.editor.create(container, {
-    value: initialValue,
-  language: 'yaml', // default (will auto-switch if JSON detected)
-      theme: theme,
-      automaticLayout: true,
-      minimap: { enabled: false },
-      scrollBeyondLastLine: false,
-      wordWrap: 'on',
-      lineNumbers: 'on',
-      folding: true,
-      fontSize: 14,
-      fontFamily: "'JetBrains Mono', 'Fira Code', 'Consolas', 'Monaco', 'Courier New', monospace",
-      lineHeight: 1.6,
-      padding: { top: 16, bottom: 16 },
-    });
-
-    // Force layout after flex sizing settles
-    requestAnimationFrame(() => editor?.layout());
-    setTimeout(() => editor?.layout(), 250);
-
-    // Observe container resize to force layout (sometimes automaticLayout misses flex changes)
-    if (container) {
-      resizeObserver = new ResizeObserver(() => {
-        editor?.layout();
-      });
-      resizeObserver.observe(container);
-    }
-
-    // Listen for theme changes
-    const observer = new MutationObserver(() => {
-      if (editor) {
-        const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
-        const newTheme = isDark ? 'yamlDark' : 'yamlLight';
-        monaco.editor.setTheme(newTheme);
-      }
-    });
-    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
-
-    // Set up validation on content change (even if secret banner shown so we can auto-clear)
-    editor.onDidChangeModelContent(() => {
-      if (debounceHandle) {
-        clearTimeout(debounceHandle);
-      }
-      const now = performance.now();
-      const sinceFocus = now - lastFocusTime;
-      const extraDelay = sinceFocus < FOCUS_COOLDOWN_MS ? (FOCUS_COOLDOWN_MS - sinceFocus) : 0;
-      debounceHandle = window.setTimeout(() => {
-        debounceHandle = null;
-        detectAndSetLanguage();
-        validateContent();
-      }, DEBOUNCE_MS + extraDelay);
-    });
-
-    // On blur, force immediate validation (flush debounce)
-    editor.onDidBlurEditorWidget(() => {
-      if (debounceHandle) {
-        clearTimeout(debounceHandle);
-        debounceHandle = null;
-      }
-      detectAndSetLanguage();
-      validateContent();
-    });
-
-    // Record focus time (used to extend first debounce delay)
-    editor.onDidFocusEditorWidget(() => {
-      lastFocusTime = performance.now();
-    });
-
-    // Initial validation
-    detectAndSetLanguage();
-    validateContent();
-
-    // Cleanup observer on destroy
-    return () => {
-      observer.disconnect();
-      resizeObserver?.disconnect();
-    };
-  });
-
-  onDestroy(() => {
-    if (editor) {
-      editor.dispose();
-    }
-    if (debounceHandle) {
-      clearTimeout(debounceHandle);
-      debounceHandle = null;
-    }
-  });
-
-  function detectAndSetLanguage() {
+  function setupEditorObservers() {
     if (!editor || !monaco) return;
     const model = editor.getModel();
     if (!model) return;
-    const value = editor.getValue();
-    const trimmed = value.trim();
-    if (!trimmed) return;
-    // Detect JSON if it starts with { or [ (no escape needed for [ inside character class)
-    const isJson = /^[{[]/.test(trimmed);
-    const target = isJson ? 'json' : 'yaml';
-    if (model.getLanguageId() !== target) {
-      monaco.editor.setModelLanguage(model, target);
+
+    resizeObserver = new ResizeObserver(() => editor?.layout());
+    resizeObserver.observe(container);
+    themeObserver = new MutationObserver(() => {
+      if (!monaco) return;
+      monaco.editor.setTheme(
+        document.documentElement.getAttribute('data-theme') === 'dark' ? 'yamlDark' : 'yamlLight',
+      );
+    });
+    themeObserver.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ['data-theme'],
+    });
+
+    markerSubscription = monaco.editor.onDidChangeMarkers(resources => {
+      if (schemaUpdateInFlight || !resources.some(resource => resource.toString() === model.uri.toString())) {
+        return;
+      }
+      publishCurrentWorkerDiagnostics();
+    });
+    editorDisposables = [
+      editor.onDidChangeModelContent(() => {
+        if (debounceHandle) clearTimeout(debounceHandle);
+        const elapsedSinceFocus = performance.now() - lastFocusTime;
+        const focusDelay = elapsedSinceFocus < FOCUS_COOLDOWN_MS ? FOCUS_COOLDOWN_MS - elapsedSinceFocus : 0;
+        debounceHandle = setTimeout(() => {
+          debounceHandle = null;
+          detectLanguageForBadge();
+          validateContent();
+        }, DEBOUNCE_MS + focusDelay);
+      }),
+      editor.onDidBlurEditorWidget(() => {
+        if (debounceHandle) clearTimeout(debounceHandle);
+        debounceHandle = null;
+        detectLanguageForBadge();
+        validateContent();
+      }),
+      editor.onDidFocusEditorWidget(() => {
+        lastFocusTime = performance.now();
+      }),
+    ];
+  }
+
+  function queueSchemaUpdate(
+    version: GatewayApiVersion,
+    bundle: GatewayApiBundle | null,
+    loadError: string | null,
+  ) {
+    const request: SchemaRequest = {
+      generation: ++schemaUpdateGeneration,
+      version,
+      bundle,
+      loadError,
+    };
+    pendingSchemaRequest = request;
+    if (mounted && validatorInitializationFailed && !validatorInitializationInProgress) {
+      void initializeEditor();
     }
-    currentLanguage = isJson ? 'JSON' : 'YAML';
+
+    if (bundle === null) crdDiagnostics = [];
+    processSchemaUpdates();
+  }
+
+  async function processSchemaUpdates() {
+    if (!mounted || destroyed || !yamlService || !editor || schemaUpdateInFlight) return;
+    schemaUpdateInFlight = true;
+    try {
+      while (pendingSchemaRequest && !destroyed) {
+        const request = pendingSchemaRequest;
+        pendingSchemaRequest = null;
+        await applySchemaRequest(request);
+      }
+    } finally {
+      schemaUpdateInFlight = false;
+      if (pendingSchemaRequest && !destroyed) processSchemaUpdates();
+    }
+  }
+
+  async function applySchemaRequest(request: SchemaRequest) {
+    if (!yamlService || !editor || !monaco) return;
+    const schema = request.bundle?.schema;
+    const validBundle = Boolean(
+      request.bundle && schema && typeof schema === 'object' && request.bundle.id === request.version,
+    );
+    const schemas = validBundle
+      ? [{ uri: String(schema!.$id || `inmemory://schema/gateway-api/${request.bundle!.tag}.json`), fileMatch: ['*'], schema: schema! }]
+      : [];
+
+    if (!validBundle) {
+      const model = editor.getModel();
+      if (model) monaco.editor.setModelMarkers(model, 'yaml', []);
+    }
+
+    if (isCurrentRequest(request)) {
+      crdDiagnostics = [];
+      dispatch('audit', {
+        version: request.version,
+        status: request.loadError || !validBundle ? (request.loadError ? 'error' : 'loading') : 'loading',
+        diagnostics: [],
+        ...(request.loadError ? { message: request.loadError } : {}),
+      });
+    }
+
+    try {
+      // update() replaces schema associations and asks the worker to revalidate the existing model.
+      await yamlService.update({ schemas });
+      if (!isCurrentRequest(request) || destroyed) return;
+
+      if (!validBundle) {
+        activeSchemaGeneration = request.generation;
+        activeSchemaVersion = null;
+        crdDiagnostics = [];
+        dispatch('audit', {
+          version: request.version,
+          status: request.loadError ? 'error' : 'loading',
+          diagnostics: [],
+          ...(request.loadError ? { message: request.loadError } : {}),
+        });
+        return;
+      }
+
+      activeSchemaGeneration = request.generation;
+      activeSchemaVersion = request.version;
+      publishCurrentWorkerDiagnostics();
+    } catch (error) {
+      if (!isCurrentRequest(request) || destroyed) return;
+      activeSchemaGeneration = request.generation;
+      activeSchemaVersion = null;
+      crdDiagnostics = [];
+      dispatch('audit', {
+        version: request.version,
+        status: 'error',
+        diagnostics: [],
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  function isCurrentRequest(request: SchemaRequest): boolean {
+    return request.generation === schemaUpdateGeneration
+      && request.version === gatewayApiVersion
+      && request.bundle === gatewayApiBundle
+      && request.loadError === gatewayApiLoadError;
+  }
+
+  function publishCurrentWorkerDiagnostics() {
+    if (!monaco || !editor || activeSchemaVersion === null || activeSchemaGeneration !== schemaUpdateGeneration) return;
+    if (activeSchemaVersion !== gatewayApiVersion || !gatewayApiBundle || gatewayApiBundle.id !== activeSchemaVersion) return;
+    const model = editor.getModel();
+    if (!model) return;
+    crdDiagnostics = model.getValue().trim()
+      ? monaco.editor
+          .getModelMarkers({ resource: model.uri, owner: 'yaml' })
+          .filter(marker => marker.severity === monaco!.MarkerSeverity.Error || marker.severity === monaco!.MarkerSeverity.Warning)
+          .map(marker => ({
+            line: marker.startLineNumber,
+            column: marker.startColumn,
+            endLine: marker.endLineNumber,
+            endColumn: marker.endColumn,
+            message: marker.message,
+            severity: marker.severity === monaco!.MarkerSeverity.Error ? 'error' : 'warning',
+          }))
+      : [];
+    dispatch('audit', {
+      version: activeSchemaVersion,
+      status: 'ready',
+      diagnostics: crdDiagnostics,
+    });
+  }
+
+  function detectLanguageForBadge() {
+    if (!editor) return;
+    currentLanguage = /^[{[]/.test(editor.getValue().trim()) ? 'JSON' : 'YAML';
   }
 
   function validateContent() {
     if (!editor || !monaco) return;
-
     const content = editor.getValue();
-    // Do not early-return when secretDetected; we allow user to paste sanitized content which will clear the banner.
     validationErrors = [];
-    parsedObjects = { gateways: [], routes: [], services: [], deployments: [], statefulSets: [], daemonSets: [], gatewayClasses: [], referenceGrants: [] };
+    parsedObjects = EMPTY_PARSED_OBJECTS();
 
     if (!content.trim()) {
-      updateMarkers();
+      updateParserMarkers();
       dispatch('parse', parsedObjects);
       return;
     }
 
     try {
-      // Split YAML documents by ---
       const documents = splitYamlDocumentsWithLocations(content);
-      const allObjects: any[] = [];
-
+      const allObjects: unknown[] = [];
       for (const document of documents) {
         try {
           const parsed = yaml.load(document.content);
-          if (parsed && typeof parsed === 'object') {
-            allObjects.push(parsed);
-          }
-        } catch (parseError: any) {
-          const mark = parseError?.mark;
-          const line = document.startLine + (typeof mark?.line === 'number' ? mark.line : 0);
-          const column = typeof mark?.column === 'number' ? mark.column + 1 : 1;
+          if (parsed && typeof parsed === 'object') allObjects.push(parsed);
+        } catch (parseError) {
+          const mark = (parseError as { mark?: { line?: number; column?: number } })?.mark;
           validationErrors.push({
-            line,
-            column,
-            message: `YAML Parse Error: ${parseError instanceof Error ? parseError.message : String(parseError)}`
+            line: document.startLine + (typeof mark?.line === 'number' ? mark.line : 0),
+            column: typeof mark?.column === 'number' ? mark.column + 1 : 1,
+            message: `YAML Parse Error: ${parseError instanceof Error ? parseError.message : String(parseError)}`,
           });
         }
       }
 
-      // Secret / credential heuristic detection BEFORE further processing
-      const secretResult = containsPotentialSecrets(content, allObjects);
+      const objects = allObjects as Record<string, unknown>[];
+      const secretResult = containsPotentialSecrets(content, objects);
       if (secretResult) {
         if (!secretDetected) {
-          // First time detection for this session of content; clear and show banner
           secretDetected = secretResult;
           editor.setValue('');
-          if (debounceHandle) { clearTimeout(debounceHandle); debounceHandle = null; }
+          if (debounceHandle) clearTimeout(debounceHandle);
+          debounceHandle = null;
           validationErrors = [];
-          parsedObjects = { gateways: [], routes: [], services: [], deployments: [], statefulSets: [], daemonSets: [], gatewayClasses: [], referenceGrants: [] };
-          updateMarkers();
+          parsedObjects = EMPTY_PARSED_OBJECTS();
+          updateParserMarkers();
           dispatch('parse', parsedObjects);
         } else {
-          // Already flagged; replace reasons (avoid unbounded growth)
-            secretDetected = secretResult;
+          secretDetected = secretResult;
         }
-        return; // stop further processing while secrets present
-      } else if (secretDetected) {
-        // Previously flagged but now clean content: auto-clear banner
-        secretDetected = null;
+        return;
       }
+      if (secretDetected) secretDetected = null;
 
-      // Validate and categorize objects
-      for (const obj of allObjects) {
+      for (const object of objects) {
         try {
-          validateKubernetesObject(obj);
-          // Categorize supported kinds; silently ignore unsupported kinds per requirements
-          switch (obj.kind) {
-            case 'Gateway': parsedObjects.gateways.push(obj as Gateway); break;
-            case 'HTTPRoute':
-            case 'TLSRoute':
-            case 'TCPRoute':
-            case 'GRPCRoute':
-              parsedObjects.routes.push(obj as AnyRoute); break;
-            case 'Service': parsedObjects.services.push(obj as Service); break;
-            case 'Deployment': parsedObjects.deployments.push(obj as Deployment); break;
-            case 'StatefulSet': parsedObjects.statefulSets.push(obj as StatefulSet); break;
-            case 'DaemonSet': parsedObjects.daemonSets.push(obj as DaemonSet); break;
-            case 'GatewayClass': parsedObjects.gatewayClasses.push(obj as GatewayClass); break;
-            case 'ReferenceGrant': parsedObjects.referenceGrants.push(obj as ReferenceGrant); break;
-            default: /* ignore unsupported */ break;
-          }
-        } catch (validationError: any) {
+          validateKubernetesObject(object);
+          categorizeObject(object);
+        } catch (validationError) {
           validationErrors.push({
             line: 1,
             column: 1,
-            message: `Validation Error: ${validationError.message}`
+            message: `Validation Error: ${validationError instanceof Error ? validationError.message : String(validationError)}`,
           });
         }
       }
 
-      updateMarkers();
-      
-      if (validationErrors.length === 0) {
-        dispatch('parse', parsedObjects);
-      } else {
-        dispatch('error', validationErrors);
-      }
-
-    } catch (error: any) {
+      updateParserMarkers();
+      if (validationErrors.length === 0) dispatch('parse', parsedObjects);
+      else dispatch('error', validationErrors);
+    } catch (error) {
       validationErrors.push({
         line: 1,
         column: 1,
-        message: `Error processing YAML: ${error.message}`
+        message: `Error processing YAML: ${error instanceof Error ? error.message : String(error)}`,
       });
-      updateMarkers();
+      updateParserMarkers();
       dispatch('error', validationErrors);
     }
   }
 
-  function validateKubernetesObject(obj: any) {
-    if (!obj.apiVersion) {
-      throw new Error('Missing required field: apiVersion');
-    }
-    if (!obj.kind) {
-      throw new Error('Missing required field: kind');
-    }
-    if (!obj.metadata?.name) {
-      throw new Error('Missing required field: metadata.name');
-    }
-    
-    // Validate specific object types
-    if (obj.kind === 'Gateway') {
-      if (!obj.spec) {
-        throw new Error('Gateway missing required field: spec');
-      }
-    } else if (['HTTPRoute', 'TLSRoute', 'TCPRoute', 'GRPCRoute'].includes(obj.kind)) {
-      if (!obj.spec) {
-        throw new Error(`${obj.kind} missing required field: spec`);
-      }
+  function validateKubernetesObject(object: Record<string, unknown>) {
+    if (!object.apiVersion) throw new Error('Missing required field: apiVersion');
+    if (!object.kind) throw new Error('Missing required field: kind');
+    const metadata = object.metadata as Record<string, unknown> | undefined;
+    if (!metadata?.name) throw new Error('Missing required field: metadata.name');
+    if (isGatewayApiObject(object) && ['Gateway', 'HTTPRoute', 'TLSRoute', 'TCPRoute', 'GRPCRoute'].includes(String(object.kind)) && !object.spec) {
+      throw new Error(`${String(object.kind)} missing required field: spec`);
     }
   }
 
-  function updateMarkers() {
-    if (!editor) return;
+  function categorizeObject(object: Record<string, unknown>) {
+    if (isGatewayApiObject(object)) {
+      switch (object.kind) {
+        case 'Gateway': parsedObjects.gateways.push(object as Gateway); break;
+        case 'HTTPRoute':
+        case 'TLSRoute':
+        case 'TCPRoute':
+        case 'GRPCRoute': parsedObjects.routes.push(object as AnyRoute); break;
+        case 'GatewayClass': parsedObjects.gatewayClasses.push(object as GatewayClass); break;
+        case 'ReferenceGrant': parsedObjects.referenceGrants.push(object as ReferenceGrant); break;
+      }
+      return;
+    }
+    switch (object.kind) {
+      case 'Service': parsedObjects.services.push(object as Service); break;
+      case 'Deployment': parsedObjects.deployments.push(object as Deployment); break;
+      case 'StatefulSet': parsedObjects.statefulSets.push(object as StatefulSet); break;
+      case 'DaemonSet': parsedObjects.daemonSets.push(object as DaemonSet); break;
+    }
+  }
 
+  function isGatewayApiObject(object: Record<string, unknown>) {
+    const apiVersion = typeof object.apiVersion === 'string' ? object.apiVersion : '';
+    return GATEWAY_API_GROUPS.has(apiVersion.split('/')[0]);
+  }
+
+  function updateParserMarkers() {
+    if (!editor || !monaco) return;
     const model = editor.getModel();
     if (!model) return;
+    monaco.editor.setModelMarkers(
+      model,
+      'yaml-validation',
+      validationErrors.map(error => ({
+        severity: monaco!.MarkerSeverity.Error,
+        startLineNumber: error.line,
+        startColumn: error.column,
+        endLineNumber: error.line,
+        endColumn: Number.MAX_SAFE_INTEGER,
+        message: error.message,
+      })),
+    );
+  }
 
-  const markers = validationErrors.map(error => ({
-      severity: monaco.MarkerSeverity.Error,
-      startLineNumber: error.line,
-      startColumn: error.column,
-      endLineNumber: error.line,
-      endColumn: Number.MAX_SAFE_INTEGER,
-      message: error.message,
-    }));
+  $: sampleInsertionReady = Boolean(
+    gatewayApiBundle
+    && gatewayApiBundle.id === gatewayApiVersion
+    && activeSchemaVersion === gatewayApiVersion
+    && activeSchemaGeneration === schemaUpdateGeneration,
+  );
 
-  monaco.editor.setModelMarkers(model, 'yaml-validation', markers);
+  function loadSample(name: 'basic' | 'multi') {
+    if (!editor || !sampleInsertionReady || !gatewayApiBundle) return;
+    const source = name === 'basic' ? basicSample : multiSample;
+    const transformed = splitYamlDocumentsWithLocations(source)
+      .map(document => {
+        const parsed = yaml.load(document.content);
+        if (!parsed || typeof parsed !== 'object') return document.content;
+        const object = parsed as Record<string, unknown>;
+        if (isGatewayApiObject(object) && typeof object.kind === 'string') {
+          const group = String(object.apiVersion).split('/')[0];
+          const crd = gatewayApiBundle!.crds.find(candidate => candidate.group === group && candidate.kind === object.kind);
+          if (crd) object.apiVersion = `${crd.group}/${crd.storageVersion}`;
+        }
+        return yaml.dump(object, { lineWidth: -1, noRefs: true }).trimEnd();
+      })
+      .join('\n---\n');
+    secretDetected = null;
+    editor.setValue(transformed);
+    detectLanguageForBadge();
+    validateContent();
   }
 
   export function getValue(): string {
@@ -480,18 +610,7 @@
   }
 
   export function setValue(value: string) {
-    if (editor) {
-      editor.setValue(value);
-    }
-  }
-
-  function loadSample(name: 'basic' | 'multi') {
-    const text = name === 'basic' ? basicSample : multiSample;
-    secretDetected = null; // reset banner when loading sample
-    setValue((text || '').trimStart());
-    // Trigger parse explicitly since onDidChangeModelContent fires
-    detectAndSetLanguage();
-    validateContent();
+    editor?.setValue(value);
   }
 
   function gotoLine(line: number) {
@@ -500,133 +619,118 @@
     editor.setPosition({ lineNumber: line, column: 1 });
     editor.focus();
   }
-
-  // Automatically expand error panel when new errors appear
-  $: if (validationErrors.length > 0 && !errorsExpanded) {
-    errorsExpanded = true;
-  }
 </script>
 
 <style>
-  /* Monaco editor container uses Tailwind classes, only custom Monaco theming here */
-  .monaco-editor {
-    font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', 'Monaco', 'Courier New', monospace;
+  .editor-toolbar,
+  .editor-status,
+  .editor-actions {
+    min-width: 0;
   }
-  
-  /* Dark theme adjustments for Monaco */
-  :global(.dark) .monaco-editor.vs-dark .margin,
-  :global(.dark) .monaco-editor.vs-dark .monaco-editor-background {
-    background-color: hsl(var(--b3)) !important;
-  }
-  
-  :global(.dark) .monaco-editor.vs-dark .current-line {
-    background-color: hsl(var(--b2)) !important;
-  }
-  
-  :global(.dark) .monaco-editor.vs-dark .line-numbers {
-    color: hsl(var(--bc) / 0.6) !important;
-  }
-  
-  /* Light theme adjustments for Monaco */
-  :global(.light) .monaco-editor.vs .margin,
-  :global(.light) .monaco-editor.vs .monaco-editor-background {
-    background-color: hsl(var(--b1)) !important;
-  }
-  
-  :global(.light) .monaco-editor.vs .current-line {
-    background-color: hsl(var(--b2)) !important;
-  }
-  
-  :global(.light) .monaco-editor.vs .line-numbers {
-    color: hsl(var(--bc) / 0.6) !important;
+
+  @media (max-width: 600px) {
+    .editor-toolbar {
+      align-items: stretch;
+      flex-direction: column;
+    }
+
+    .editor-status {
+      justify-content: space-between;
+    }
+
+    .editor-actions {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      width: 100%;
+    }
+
+    .editor-actions select,
+    .editor-actions button {
+      min-height: 44px;
+    }
   }
 </style>
 
-<div class="h-full flex flex-col bg-base-100 border border-base-300 rounded-lg overflow-hidden min-h-0"
-  style="min-height:0;">
+
+<div class="h-full flex flex-col bg-base-100 border border-base-300 rounded-lg overflow-hidden min-h-0" style="min-height:0;">
   {#if secretDetected}
     <div class="bg-red-600/20 border-b border-warning text-warning-content px-4 py-3 flex flex-col gap-2">
       <div class="font-semibold flex items-center gap-2">
-        <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20"><path d="M8.257 3.099c.765-1.36 2.72-1.36 3.485 0l6.518 11.602c.75 1.336-.213 2.999-1.742 2.999H3.48c-1.53 0-2.493-1.663-1.743-2.999L8.257 3.1zM11 14a1 1 0 10-2 0 1 1 0 002 0zm-1-2a.75.75 0 01-.75-.75v-3.5a.75.75 0 011.5 0v3.5A.75.75 0 0110 12z"/></svg>
+        <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true"><path d="M8.257 3.099c.765-1.36 2.72-1.36 3.485 0l6.518 11.602c.75 1.336-.213 2.999-1.742 2.999H3.48c-1.53 0-2.493-1.663-1.743-2.999L8.257 3.1zM11 14a1 1 0 10-2 0 1 1 0 002 0zm-1-2a.75.75 0 01-.75-.75v-3.5a.75.75 0 011.5 0v3.5A.75.75 0 0110 12z"/></svg>
         Potential credentials detected; input cleared.
       </div>
       <div class="text-sm leading-snug">
         Remove any secrets (passwords, tokens, private keys, Kubernetes Secrets) and paste sanitized YAML/JSON again. This banner will disappear automatically when the content no longer matches secret heuristics.
         <ul class="list-disc ml-6 mt-1 space-y-0.5">
-          {#each secretDetected.reasons as r}
-            <li class="font-mono text-xs break-all">{r}</li>
+          {#each secretDetected.reasons as reason}
+            <li class="font-mono text-xs break-all">{reason}</li>
           {/each}
         </ul>
       </div>
     </div>
   {/if}
-  <div class="flex items-center justify-between px-4 py-3 bg-base-200 border-b border-base-300">
-    <div class="flex items-center gap-3">
-      <span class="badge badge-sm badge-outline" title="Detected language mode">{currentLanguage}</span>
+
+  <div class="editor-toolbar flex items-center justify-between gap-2 px-4 py-3 bg-base-200 border-b border-base-300">
+    <div class="editor-status flex items-center gap-3">
+      <span class="badge badge-sm badge-outline" title="Detected input format">{currentLanguage}</span>
       <div class="text-sm font-medium text-base-content">
         {#if validationErrors.length > 0}
-          <div class="flex items-center gap-2 text-error">
-            <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-              <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clip-rule="evenodd"></path>
-            </svg>
-            {validationErrors.length} error{validationErrors.length !== 1 ? 's' : ''}
-          </div>
+          <span class="text-error">{validationErrors.length} parser error{validationErrors.length !== 1 ? 's' : ''}</span>
         {:else if parsedObjects.gateways.length + parsedObjects.routes.length > 0}
-          <div class="flex items-center gap-2 text-success">
-            <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-              <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path>
-            </svg>
-            {parsedObjects.gateways.length} gateway{parsedObjects.gateways.length !== 1 ? 's' : ''}, 
-            {parsedObjects.routes.length} route{parsedObjects.routes.length !== 1 ? 's' : ''}
-          </div>
+          <span class="text-success">{parsedObjects.gateways.length} gateway{parsedObjects.gateways.length !== 1 ? 's' : ''}, {parsedObjects.routes.length} route{parsedObjects.routes.length !== 1 ? 's' : ''}</span>
         {:else}
-          <div class="flex items-center gap-2 text-base-content/60">
-            <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-              <path fill-rule="evenodd" d="M3 4a1 1 0 011-1h12a1 1 0 011 1v2a1 1 0 01-1 1H4a1 1 0 01-1-1V4zm0 4a1 1 0 011-1h12a1 1 0 011 1v2a1 1 0 01-1 1H4a1 1 0 01-1-1V8zm0 4a1 1 0 011-1h12a1 1 0 011 1v2a1 1 0 01-1 1H4a1 1 0 01-1-1v-2z" clip-rule="evenodd"></path>
-            </svg>
-            No YAML content
-          </div>
+          <span class="text-base-content/60">No YAML content</span>
         {/if}
       </div>
     </div>
-    
-    <div class="flex items-center gap-2">
-      <select class="select select-sm select-bordered" bind:value={selectedSample} title="Choose sample dataset">
+
+    <div class="editor-actions flex items-center gap-2">
+      <select class="select select-sm select-bordered" bind:value={selectedSample} title="Choose sample dataset" aria-label="Choose sample dataset">
         <option value="basic">Basic sample</option>
         <option value="multi">Multi-gateway (20 routes)</option>
       </select>
-      <button 
-        class="btn btn-sm btn-primary" 
+      <button
+        class="btn btn-sm btn-primary"
         on:click={() => loadSample(selectedSample)}
         title="Load selected sample YAML"
+        disabled={!sampleInsertionReady}
       >
-        <svg class="w-4 h-4 mr-1" fill="currentColor" viewBox="0 0 20 20">
-          <path fill-rule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clip-rule="evenodd"></path>
-        </svg>
         Insert Sample
       </button>
     </div>
   </div>
+
   {#if validationErrors.length > 0}
     <div class="border-b border-error/30 bg-error/5">
       <button type="button" class="w-full flex items-center justify-between px-4 py-2 text-error font-medium text-left hover:bg-error/10 focus:outline-none" on:click={() => errorsExpanded = !errorsExpanded} aria-expanded={errorsExpanded} aria-controls="yaml-error-panel">
-        <span>{validationErrors.length} YAML error{validationErrors.length !== 1 ? 's' : ''}</span>
-        <svg class="w-4 h-4 transform transition-transform {errorsExpanded ? 'rotate-90' : ''}" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M6 6a1 1 0 011.707-.707l6 6a1 1 0 01-1.414 1.414l-6-6A.997.997 0 016 6z" clip-rule="evenodd"/></svg>
+        <span>{validationErrors.length} YAML parser error{validationErrors.length !== 1 ? 's' : ''}</span>
+        <span aria-hidden="true">{errorsExpanded ? '−' : '+'}</span>
       </button>
       {#if errorsExpanded}
         <ul id="yaml-error-panel" class="max-h-48 overflow-auto divide-y divide-error/20 text-sm">
-          {#each validationErrors as err}
-            <li>
-              <button type="button" class="w-full px-4 py-2 text-left cursor-pointer hover:bg-error/10" on:click={() => gotoLine(err.line)}>
-                <span class="font-mono text-xs mr-2">Ln {err.line}</span>{err.message}
-              </button>
-            </li>
+          {#each validationErrors as error}
+            <li><button type="button" class="w-full px-4 py-2 text-left cursor-pointer hover:bg-error/10" on:click={() => gotoLine(error.line)}><span class="font-mono text-xs mr-2">Ln {error.line}</span>{error.message}</button></li>
           {/each}
         </ul>
       {/if}
     </div>
   {/if}
-  
-  <div bind:this={container} class="flex-1 min-h-0" style="width:100%;height:100%;min-height:0;">
-  </div>
+
+  {#if crdDiagnostics.length > 0}
+    <div class="border-b border-warning/30 bg-warning/5">
+      <button type="button" class="w-full flex items-center justify-between px-4 py-2 text-left font-medium hover:bg-warning/10 focus:outline-none" on:click={() => crdDiagnosticsExpanded = !crdDiagnosticsExpanded} aria-expanded={crdDiagnosticsExpanded} aria-controls="crd-diagnostics-panel">
+        <span>CRD diagnostics: {crdDiagnostics.length} schema issue{crdDiagnostics.length !== 1 ? 's' : ''}</span>
+        <span aria-hidden="true">{crdDiagnosticsExpanded ? '−' : '+'}</span>
+      </button>
+      {#if crdDiagnosticsExpanded}
+        <ul id="crd-diagnostics-panel" class="max-h-48 overflow-auto divide-y divide-warning/20 text-sm">
+          {#each crdDiagnostics as diagnostic}
+            <li><button type="button" class="w-full px-4 py-2 text-left cursor-pointer hover:bg-warning/10" on:click={() => gotoLine(diagnostic.line)}><span class="font-mono text-xs mr-2">Ln {diagnostic.line}</span>{diagnostic.message}</button></li>
+          {/each}
+        </ul>
+      {/if}
+    </div>
+  {/if}
+
+  <div bind:this={container} class="flex-1 min-h-0" style="width:100%;height:100%;min-height:0;"></div>
 </div>

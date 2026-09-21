@@ -1,13 +1,13 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test } from '@playwright/test';
+import { exposeMonaco, readMarkers, setEditorValue, waitForEditor, yamlMarkers } from './editor.js';
 
-type BrowserMarker = {
-  owner: string;
-  message: string;
-  startLineNumber: number;
-  severity: number;
-};
+function resourceSummaryValue(page: import('@playwright/test').Page, label: string) {
+  return page
+    .locator('[aria-label="Resource summary"] dt', { hasText: label })
+    .locator('xpath=following-sibling::dd[1]');
+}
 
-const validYaml = `apiVersion: gateway.networking.k8s.io/v1beta1
+const validYaml = `apiVersion: gateway.networking.k8s.io/v1
 kind: Gateway
 metadata:
   name: worker-smoke
@@ -20,77 +20,11 @@ spec:
 `;
 
 const schemaInvalidYaml = validYaml.replace('name: worker-smoke', 'name: 123');
-const syntaxInvalidYaml = `apiVersion: gateway.networking.k8s.io/v1beta1
+const syntaxInvalidYaml = `apiVersion: gateway.networking.k8s.io/v1
 kind: Gateway
 metadata:
   name: [broken
 `;
-
-async function exposeMonaco(page: Page): Promise<void> {
-  await page.addInitScript(() => {
-    const environment: Record<string, unknown> = { globalAPI: true };
-    Object.defineProperty(globalThis, 'MonacoEnvironment', {
-      configurable: true,
-      get: () => environment,
-      set: (value: Record<string, unknown>) => {
-        if (
-          (globalThis as typeof globalThis & { __promiseMonacoWorker?: boolean })
-            .__promiseMonacoWorker &&
-          typeof value.getWorker === 'function'
-        ) {
-          const getWorker = (value.getWorker as (...args: unknown[]) => Worker).bind(value);
-          value.getWorker = (...args: unknown[]) => Promise.resolve(getWorker(...args));
-        }
-        Object.assign(environment, value);
-        environment.globalAPI = true;
-      },
-    });
-  });
-}
-
-async function waitForEditor(page: Page): Promise<void> {
-  await page.goto('./');
-  await expect(page.locator('.monaco-editor')).toBeVisible();
-  await expect
-    .poll(() =>
-      page.evaluate(() => {
-        const monaco = (
-          globalThis as typeof globalThis & { monaco?: typeof import('monaco-editor') }
-        ).monaco;
-        return monaco?.editor.getModels().length ?? 0;
-      }),
-    )
-    .toBe(1);
-}
-
-async function setEditorValue(page: Page, value: string): Promise<void> {
-  await page.evaluate((nextValue) => {
-    const monaco = (globalThis as typeof globalThis & { monaco: typeof import('monaco-editor') })
-      .monaco;
-    const model = monaco.editor.getModels()[0];
-    if (!model) throw new Error('Monaco editor model is missing');
-    model.setValue(nextValue);
-  }, value);
-}
-
-async function readMarkers(page: Page): Promise<BrowserMarker[]> {
-  return page.evaluate(() => {
-    const monaco = (globalThis as typeof globalThis & { monaco: typeof import('monaco-editor') })
-      .monaco;
-    const model = monaco.editor.getModels()[0];
-    if (!model) throw new Error('Monaco editor model is missing');
-    return monaco.editor.getModelMarkers({ resource: model.uri }).map((marker) => ({
-      owner: marker.owner,
-      message: marker.message,
-      startLineNumber: marker.startLineNumber,
-      severity: marker.severity,
-    }));
-  });
-}
-
-function yamlMarkers(markers: BrowserMarker[]): BrowserMarker[] {
-  return markers.filter((marker) => marker.owner === 'yaml');
-}
 
 test.beforeEach(async ({ page }) => {
   await exposeMonaco(page);
@@ -143,25 +77,10 @@ test('worker accepts the shipped multi-gateway YAML', async ({ page }) => {
   await page.locator('select[title="Choose sample dataset"]').selectOption('multi');
   await page.locator('button[title="Load selected sample YAML"]').click();
 
-  await expect(
-    page
-      .locator('.stat')
-      .filter({ has: page.getByText('Gateways', { exact: true }) })
-      .locator('.stat-value'),
-  ).toHaveText('3');
-  await expect(
-    page
-      .locator('.stat')
-      .filter({ has: page.getByText('Routes', { exact: true }) })
-      .locator('.stat-value'),
-  ).toHaveText('20');
-  await expect(
-    page
-      .locator('.stat')
-      .filter({ has: page.getByText('Covered Routes', { exact: true }) })
-      .locator('.stat-value'),
-  ).toHaveText('17');
-  await expect(page.locator('tbody tr')).toHaveCount(20);
+  await expect(resourceSummaryValue(page, 'Gateways')).toHaveText('3');
+  await expect(resourceSummaryValue(page, 'Routes')).toHaveText('20');
+  await expect(resourceSummaryValue(page, 'With parent refs')).toHaveText('17');
+  await expect(page.locator('.route-coverage tbody tr')).toHaveCount(20);
   await expect.poll(async () => yamlMarkers(await readMarkers(page))).toEqual([]);
   expect(runtimeErrors).toEqual([]);
 });

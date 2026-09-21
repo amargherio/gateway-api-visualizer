@@ -4,19 +4,16 @@ Visualize relationships between Kubernetes Gateway API `Gateway` and route resou
 
 ## Features
 
-- In‑browser YAML editor (multi‑document supported)
-- Parses `Gateway` and Route resources (`HTTPRoute`, `TLSRoute`, `TCPRoute`, `GRPCRoute`)
-- Builds a coverage graph: which routes are attached to which gateways/listeners
-- Real-time visualization + coverage table as you type
-- Light/Dark theme toggle
-- Basic test coverage for graph builder logic
-- Enhanced Route Coverage table:
-  - Sort by Namespace or Name (click header toggles asc/desc)
-  - Filter by coverage (All / Covered / Uncovered)
-  - Search by name or namespace (debounced)
-  - Automatic pagination > 20 rows; selectable sizes (20, 50, 100, All)
-  - Encapsulated in `RouteCoverageTable.svelte` for reuse & testability
-  - Click a row to focus & highlight the corresponding route node in the graph
+- Local multi-document YAML/JSON editor with release-specific CRD diagnostics
+- Gateway API audit targets 1.3 (`v1.3.0`), 1.4 (`v1.4.1`), 1.5 (`v1.5.1`), and 1.6 (`v1.6.2`)
+- Standard and experimental CRD inventories, served API versions, and published feature catalogs
+- In-place version switching that preserves editor text, cursor, scroll position, and undo history
+- Relationship graph for `Gateway`, `HTTPRoute`, `TLSRoute`, `TCPRoute`, and `GRPCRoute`
+- Route parent-reference summary, filtering, sorting, pagination, and keyboard inspection
+- Same-origin, checked-in audit bundles: manifests never leave the browser
+- Responsive light and dark engineering workbench
+
+CRD diagnostics check release compatibility and structural fields. They do not execute Kubernetes CEL admission rules or prove support in a specific Gateway controller. The relationship graph is a local preview; a parent reference is not proof that a controller accepted an attachment.
 
 ## Project Layout (flattened)
 
@@ -27,10 +24,12 @@ src/
   App.svelte
   main.ts
   lib/
-    shared.ts        # types + graph builder logic
-    shared.test.ts   # tests
+    gatewayApi.ts     # release contracts + same-origin bundle loader
+    GatewayApiSupport.svelte
+    shared.ts         # types + relationship graph builder
     YamlEditor.svelte
     Graph.svelte
+    RouteCoverageTable.svelte
     ThemeToggle.svelte
     components/
 ```
@@ -51,6 +50,14 @@ pnpm dev
 ```
 
 Web UI runs on :5173. Paste / edit YAML in the left panel and the graph updates instantly.
+
+Regenerate the checked-in release bundles from exact upstream release assets and same-tag feature sources:
+
+```bash
+node scripts/generate-gateway-api.mjs
+```
+
+Generation verifies published asset digests where available and writes deterministic files under `public/gateway-api/`. Normal builds and application runtime do not contact GitHub.
 
 ## Sample YAML
 
