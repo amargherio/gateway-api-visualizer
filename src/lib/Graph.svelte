@@ -249,4 +249,4 @@
   }
 </style>
 
-<div bind:this={container} class="graph-container" />
+<div bind:this={container} class="graph-container"></div>

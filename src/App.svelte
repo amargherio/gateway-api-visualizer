@@ -440,8 +440,10 @@
           {/if}
         </div>
         <!-- Mobile overlay version -->
-  <div class="lg:hidden absolute top-0 right-0 h-full" style="width: {SIDEBAR_WIDTH}px; pointer-events: {sidebarOpen ? 'auto':'none'};">
-          <DetailsSidebar bind:open={sidebarOpen} selected={selectedObject} on:close={closeSidebar} />
+        <div class="lg:hidden absolute top-0 right-0 h-full" style="width: {SIDEBAR_WIDTH}px; pointer-events: {sidebarOpen ? 'auto':'none'};">
+          {#if sidebarOpen}
+            <DetailsSidebar bind:open={sidebarOpen} selected={selectedObject} on:close={closeSidebar} />
+          {/if}
         </div>
         <!-- Toggle button for mobile when closed -->
       </div>

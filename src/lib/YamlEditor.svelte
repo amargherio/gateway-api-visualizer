@@ -12,6 +12,7 @@
   let currentLanguage: 'YAML' | 'JSON' = 'YAML';
   import * as yaml from 'js-yaml';
   import type { Gateway, AnyRoute, Service, Deployment, StatefulSet, DaemonSet, GatewayClass, ReferenceGrant } from './shared.js';
+  import { splitYamlDocumentsWithLocations } from './yamlDocuments.js';
   import { containsPotentialSecrets } from './secretDetection.js';
 
   export let initialValue: string = '';
@@ -344,23 +345,23 @@
 
     try {
       // Split YAML documents by ---
-      const documents = content.split(/^---\s*$/m).filter(doc => doc.trim());
+      const documents = splitYamlDocumentsWithLocations(content);
       const allObjects: any[] = [];
 
-      for (const doc of documents) {
+      for (const document of documents) {
         try {
-          const parsed = yaml.load(doc);
+          const parsed = yaml.load(document.content);
           if (parsed && typeof parsed === 'object') {
             allObjects.push(parsed);
           }
         } catch (parseError: any) {
-          // Extract line number from error
-          const match = parseError.message.match(/at line (\d+)/);
-          const line = match ? parseInt(match[1]) : 1;
+          const mark = parseError?.mark;
+          const line = document.startLine + (typeof mark?.line === 'number' ? mark.line : 0);
+          const column = typeof mark?.column === 'number' ? mark.column + 1 : 1;
           validationErrors.push({
             line,
-            column: 1,
-            message: `YAML Parse Error: ${parseError.message}`
+            column,
+            message: `YAML Parse Error: ${parseError instanceof Error ? parseError.message : String(parseError)}`
           });
         }
       }
@@ -617,8 +618,10 @@
       {#if errorsExpanded}
         <ul id="yaml-error-panel" class="max-h-48 overflow-auto divide-y divide-error/20 text-sm">
           {#each validationErrors as err}
-            <li class="px-4 py-2 cursor-pointer hover:bg-error/10" on:click={() => gotoLine(err.line)}>
-              <span class="font-mono text-xs mr-2">Ln {err.line}</span>{err.message}
+            <li>
+              <button type="button" class="w-full px-4 py-2 text-left cursor-pointer hover:bg-error/10" on:click={() => gotoLine(err.line)}>
+                <span class="font-mono text-xs mr-2">Ln {err.line}</span>{err.message}
+              </button>
             </li>
           {/each}
         </ul>

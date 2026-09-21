@@ -1,6 +1,6 @@
 <script lang="ts">
   import { createEventDispatcher } from 'svelte';
-  import yaml from 'js-yaml';
+  import { dump } from 'js-yaml';
   export let open: boolean = true;
   export let selected: any = null;
 
@@ -81,7 +81,7 @@
       {/if}
       <details class="mb-3">
         <summary class="cursor-pointer select-none font-semibold">YAML (Resource)</summary>
-        <pre class="whitespace-pre-wrap mt-2"><code>{yaml.dump(resource, { noRefs: true, lineWidth: 80 })}</code></pre>
+        <pre class="whitespace-pre-wrap mt-2"><code>{dump(resource, { noRefs: true, lineWidth: 80 })}</code></pre>
       </details>
       <details>
         <summary class="cursor-pointer select-none font-semibold">Raw JSON (Resource)</summary>

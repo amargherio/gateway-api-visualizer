@@ -78,20 +78,20 @@
     {/if}
     <div class="flex flex-wrap gap-4 items-end mb-4">
       <div class="form-control">
-        <label class="label pb-1"><span class="label-text text-xs">Search</span></label>
-        <input type="text" class="input input-bordered input-sm w-56" placeholder="Name/Namespace" bind:value={pendingSearch} on:input={onSearchInput} />
+        <label class="label pb-1" for="route-search"><span class="label-text text-xs">Search</span></label>
+        <input id="route-search" type="text" class="input input-bordered input-sm w-56" placeholder="Name/Namespace" bind:value={pendingSearch} on:input={onSearchInput} />
       </div>
       <div class="form-control">
-        <label class="label pb-1"><span class="label-text text-xs">Coverage</span></label>
-        <select class="select select-bordered select-sm" bind:value={filterCoverage} on:change={() => { page=1; }}>
+        <label class="label pb-1" for="route-coverage"><span class="label-text text-xs">Coverage</span></label>
+        <select id="route-coverage" class="select select-bordered select-sm" bind:value={filterCoverage} on:change={() => { page=1; }}>
           <option value="ALL">All</option>
           <option value="COVERED">Covered</option>
           <option value="UNCOVERED">Uncovered</option>
         </select>
       </div>
       <div class="form-control">
-        <label class="label pb-1"><span class="label-text text-xs">Page Size</span></label>
-  <select class="select select-bordered select-sm" bind:value={pageSize} on:change={onPageSizeChange}>
+        <label class="label pb-1" for="route-page-size"><span class="label-text text-xs">Page Size</span></label>
+        <select id="route-page-size" class="select select-bordered select-sm" bind:value={pageSize} on:change={onPageSizeChange}>
           {#each pageSizeOptions as opt}
             <option value={opt}>{opt}</option>
           {/each}
