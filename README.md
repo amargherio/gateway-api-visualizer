@@ -31,6 +31,7 @@ src/
     Graph.svelte
     RouteCoverageTable.svelte
     ThemeToggle.svelte
+    NotFound.svelte   # lightweight missing-page recovery
     components/
 ```
 
@@ -88,6 +89,22 @@ pnpm test
 pnpm run test:browser
 ```
 
+### Keyboard and accessibility
+
+- Use the first Tab stop, **Skip to main content**, to reach the workbench.
+- Tab leaves the manifest editor by default. F1 opens editor commands, including
+  **Toggle Tab Key Moves Focus** when indentation with Tab is preferred.
+- Inspect resources through the labelled selector or route-name buttons. Escape
+  or Close dismisses resource details and returns focus to the initiating control.
+- Overflowing tables are labelled keyboard-focusable regions; use arrow keys to
+  scroll them without moving the whole page.
+
+The UI targets WCAG AA, including text and control-boundary contrast in both
+themes, visible focus, reduced motion, and narrow-screen reflow. Browser
+regressions cover keyboard navigation, expanded diagnostics, graph visibility at
+320px, and input-boundary contrast. Automated checks do not establish complete
+WCAG conformance; assistive-technology review remains necessary.
+
 ### YAML worker compatibility
 
 The editor and `monaco-yaml` share the pinned `monaco-editor@0.56.0` instance.
@@ -125,7 +142,12 @@ check the locked dependency graph.
 
 The site is automatically deployed to GitHub Pages on pushes to `main` using the workflow in `.github/workflows/deploy.yml`.
 
-Build output: `dist/` (Vite). A `404.html` copy is generated post-build for SPA routing fallback.
+Build output: `dist/` (Vite). The build has separate `index.html` and `404.html`
+entries with base-aware asset URLs. GitHub Pages serves the dedicated recovery
+document for unknown paths without loading the workbench, editor, or CRD bundles.
+Its home link respects the configured base path, including project Pages
+deployments. The development and preview servers use the same missing-page
+document and HTTP 404 status. No index-to-404 copy step is needed.
 
 Manual trigger:
 

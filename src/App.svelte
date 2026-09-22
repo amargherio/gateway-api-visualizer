@@ -293,6 +293,8 @@
   $: visibleNodes = graph ? applyFilters(graph).nodes : [];
 </script>
 
+<a class="skip-link" href="#main-content">Skip to main content</a>
+
 <div class="app-shell min-h-screen">
   <header class="app-header">
     <div class="brand-lockup">
@@ -302,7 +304,7 @@
     <ThemeToggle />
   </header>
 
-  <main class="workbench">
+  <main id="main-content" class="workbench" tabindex="-1">
     <section class="audit-panel" aria-labelledby="audit-target-title">
       <div class="audit-toolbar">
         <div class="audit-heading">
@@ -313,7 +315,7 @@
           <label for="gateway-api-version">Gateway API version</label>
           <select id="gateway-api-version" class="select select-bordered" value={gatewayApiVersion} on:change={onVersionChange}>
             {#each gatewayApiReleases as release}
-              <option value={release.id}>{release.id}</option>
+              <option value={release.id}>{release.id} ({release.tag})</option>
             {/each}
           </select>
         </div>
@@ -326,6 +328,7 @@
           data-version={gatewayApiVersion}
           data-state={auditState.status}
           aria-live="polite"
+          aria-atomic="true"
         >
           <span class:loading-dot={auditState.status === 'loading'}></span>
           <span>{statusText}</span>
@@ -372,7 +375,7 @@
       <section class="work-region topology-region" aria-labelledby="relationships-title">
         <header class="region-header topology-header">
           <div><h2 id="relationships-title">Relationships</h2><span class="region-note">Local relationship preview</span></div>
-          <div class="topology-controls" aria-label="Relationship graph controls">
+          <div class="topology-controls" role="group" aria-label="Relationship graph controls">
             <label>Search <input class="input input-bordered" type="search" placeholder="Name or namespace" bind:value={pendingSearch} on:input={onSearchInput} /></label>
             <label>Kind
               <select class="select select-bordered" bind:value={filterKind} on:change={refreshFilters}>
@@ -419,12 +422,14 @@
     </div>
 
     {#if graph}
-      <RouteCoverageTable rows={graph.routeCoverage} on:routeSelect={(event) => selectResource(event.detail.id, document.activeElement as HTMLElement)} />
+      <RouteCoverageTable rows={graph.routeCoverage} on:routeSelect={(event) => selectResource(event.detail.id, event.detail.opener)} />
     {/if}
   </main>
 </div>
 
 <style>
+  .skip-link { position: absolute; z-index: 10; top: 8px; left: 8px; padding: 8px 12px; border: 1px solid var(--color-primary); border-radius: 6px; background: var(--color-base-50); color: var(--color-base-content); transform: translateY(-150%); transition: transform 160ms ease-out; }
+  .skip-link:focus-visible { transform: translateY(0); outline: 2px solid var(--color-primary); outline-offset: 2px; }
   .app-shell { color: var(--color-base-content); background: var(--color-base-100); }
   .app-header { min-height: 58px; padding: 0 24px; display: flex; align-items: center; justify-content: space-between; gap: 16px; border-bottom: 1px solid var(--color-base-300); background: var(--color-base-50); }
   .brand-lockup { min-width: 0; display: flex; align-items: baseline; gap: 12px; }
@@ -440,7 +445,7 @@
   .version-control label, .topology-controls label { font-size: 0.75rem; color: var(--color-secondary); }
   .channel-badge { padding: 5px 8px; border: 1px solid var(--color-base-300); border-radius: 999px; color: var(--color-secondary); font-size: 0.75rem; }
   .audit-status { min-height: 36px; display: flex; align-items: center; gap: 8px; color: var(--color-success); font-size: 0.8125rem; }
-  .status-warning { color: var(--color-warning-text, var(--color-base-content)); }
+  .status-warning { color: var(--color-warning); }
   .status-error { color: var(--color-error); }
   .loading-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--color-primary); opacity: .5; animation: pulse 1s ease-in-out infinite alternate; }
   .support-skeleton { padding: 0 16px 14px; display: flex; gap: 8px; }
@@ -455,21 +460,24 @@
   .workspace-grid { display: grid; grid-template-columns: minmax(360px, 1fr) minmax(420px, 1.15fr); gap: 16px; align-items: stretch; }
   .workspace-grid.with-details { grid-template-columns: minmax(360px, 1fr) minmax(420px, 1.15fr); }
   .work-region { min-width: 0; height: clamp(420px, 58vh, 760px); display: flex; flex-direction: column; overflow: hidden; }
-  .region-header { min-height: 50px; padding: 10px 14px; border-bottom: 1px solid var(--color-base-300); display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  .region-header { flex-shrink: 0; min-height: 50px; padding: 10px 14px; border-bottom: 1px solid var(--color-base-300); display: flex; align-items: center; justify-content: space-between; gap: 12px; background: var(--color-base-100); }
   .topology-header { min-height: auto; align-items: flex-start; flex-wrap: wrap; }
   .topology-controls { display: flex; flex-wrap: wrap; align-items: end; justify-content: flex-end; gap: 8px; }
   .topology-controls label, .topology-controls .control-group { display: grid; gap: 3px; }
   .topology-controls .input, .topology-controls .select, .topology-controls .btn { min-height: 36px; height: 36px; font-size: 0.75rem; }
   .topology-controls .input { width: 150px; }
   .region-content { flex: 1; min-height: 0; min-width: 0; }
-  .topology-canvas { position: relative; }
+  .manifest-region { height: auto; min-height: clamp(420px, 58vh, 760px); }
+  .manifest-region .region-content { display: flex; flex-direction: column; }
+  .topology-region { height: auto; }
+  .topology-canvas { position: relative; flex: 1 0 320px; min-height: 320px; }
   .details-region { min-width: 0; overflow: hidden; }
   .empty-state { height: 100%; display: grid; place-content: center; padding: 24px; text-align: center; color: var(--color-secondary); }
   .empty-state h3 { margin: 0 0 6px; color: var(--color-base-content); font-size: 1rem; }
   .empty-state p { max-width: 42ch; margin: 0; }
   @media (min-width: 1440px) { .workspace-grid.with-details { grid-template-columns: minmax(360px, 1fr) minmax(420px, 1.15fr) 300px; } }
-  @media (min-width: 1100px) and (max-width: 1439px) { .details-region { grid-column: 2; min-height: 280px; } .workspace-grid.with-details .topology-region { height: 440px; } }
-  @media (max-width: 1099px) { .workbench { padding: 16px; } .workspace-grid, .workspace-grid.with-details { grid-template-columns: minmax(0, 1fr); } .work-region { height: 420px; } .topology-region { height: 360px; } .details-region { min-height: 280px; } .topology-controls { justify-content: flex-start; } }
+  @media (min-width: 1100px) and (max-width: 1439px) { .details-region { grid-column: 2; min-height: 280px; } }
+  @media (max-width: 1099px) { .workbench { padding: 16px; } .workspace-grid, .workspace-grid.with-details { grid-template-columns: minmax(0, 1fr); } .manifest-region { min-height: 420px; } .details-region { min-height: 280px; } .topology-controls { justify-content: flex-start; } }
   @media (max-width: 600px) { .app-header { padding: 0 16px; } .brand-lockup { display: grid; gap: 2px; } .audit-toolbar { align-items: flex-start; } .audit-heading { width: 100%; } .version-control { grid-template-columns: 1fr; } .audit-status { width: 100%; } .topology-controls { display: grid; grid-template-columns: 1fr 1fr; width: 100%; } .topology-controls label:first-child, .topology-controls .inspect-control, .topology-controls .btn { grid-column: 1 / -1; } .topology-controls .input, .topology-controls .select, .topology-controls .btn { width: 100%; min-height: 44px; height: 44px; } }
   @keyframes pulse { to { opacity: 1; } }
   @media (prefers-reduced-motion: reduce) { .loading-dot { animation: none; opacity: 1; } }

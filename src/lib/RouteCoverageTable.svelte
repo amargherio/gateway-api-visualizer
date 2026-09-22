@@ -19,10 +19,10 @@
   let page = 1;
   let pageSize: number | 'All' = defaultPageSize;
   let debounceHandle: ReturnType<typeof setTimeout> | undefined;
-  const dispatch = createEventDispatcher<{ routeSelect: { id: string; route: RouteCoverageDetail } }>();
+  const dispatch = createEventDispatcher<{ routeSelect: { id: string; route: RouteCoverageDetail; opener?: HTMLElement } }>();
 
-  function selectRoute(route: RouteCoverageDetail) {
-    dispatch('routeSelect', { id: route.id, route });
+  function selectRoute(route: RouteCoverageDetail, opener?: HTMLElement) {
+    dispatch('routeSelect', { id: route.id, route, opener });
   }
 
   function onSearchInput(event: Event) {
@@ -105,6 +105,7 @@
     <div>
       <label for="route-search">Search routes</label>
       <input
+        class="input input-bordered"
         id="route-search"
         type="search"
         placeholder="Name or namespace"
@@ -114,7 +115,7 @@
     </div>
     <div>
       <label for="route-coverage">Parent reference</label>
-      <select id="route-coverage" bind:value={filterCoverage} on:change={() => (page = 1)}>
+      <select class="select select-bordered" id="route-coverage" bind:value={filterCoverage} on:change={() => (page = 1)}>
         <option value="ALL">All</option>
         <option value="COVERED">Has parent ref</option>
         <option value="UNCOVERED">No parent ref</option>
@@ -122,7 +123,7 @@
     </div>
     <div>
       <label for="route-page-size">Rows per page</label>
-      <select id="route-page-size" bind:value={pageSize} on:change={onPageSizeChange}>
+      <select class="select select-bordered" id="route-page-size" bind:value={pageSize} on:change={onPageSizeChange}>
         {#each pageSizeOptions as option}
           <option value={option}>{option}</option>
         {/each}
@@ -131,16 +132,16 @@
     <p class="route-coverage__matches" aria-live="polite">{total} match{total === 1 ? '' : 'es'}</p>
   </div>
 
-  <div class="route-coverage__table-wrap">
-    <table>
+  <div class="route-coverage__table-wrap" role="region" aria-label="Route parent references table" tabindex="0">
+    <table aria-label={title}>
       <thead>
         <tr>
-          <th scope="col" aria-sort={sortCol === 'namespace' ? (sortDir === 'asc' ? 'ascending' : 'descending') : undefined}>
+          <th scope="col" aria-sort={sortCol === 'namespace' ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'}>
             <button type="button" on:click={() => toggleSort('namespace')} aria-label={sortLabel('namespace')}>
               Namespace{#if sortCol === 'namespace'} <span aria-hidden="true">{sortDir === 'asc' ? '↑' : '↓'}</span>{/if}
             </button>
           </th>
-          <th scope="col" aria-sort={sortCol === 'name' ? (sortDir === 'asc' ? 'ascending' : 'descending') : undefined}>
+          <th scope="col" aria-sort={sortCol === 'name' ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'}>
             <button type="button" on:click={() => toggleSort('name')} aria-label={sortLabel('name')}>
               Name{#if sortCol === 'name'} <span aria-hidden="true">{sortDir === 'asc' ? '↑' : '↓'}</span>{/if}
             </button>
@@ -155,17 +156,17 @@
           <tr><td colspan="5">No matching routes</td></tr>
         {/if}
         {#each visible as route}
-          <tr on:click={() => selectRoute(route)}>
+          <tr>
             <td><code>{route.namespace}</code></td>
             <td>
-              <button type="button" class="route-coverage__resource" on:click|stopPropagation={() => selectRoute(route)}>
+              <button type="button" class="route-coverage__resource" on:click={(event) => selectRoute(route, event.currentTarget as HTMLElement)}>
                 {route.name}
               </button>
             </td>
             <td>{route.covered ? 'Has parent ref' : 'No parent ref'}</td>
-            <td>{route.parentRefs.length ? route.parentRefs.join(', ') : '—'}</td>
+            <td>{route.parentRefs.length ? route.parentRefs.join(', ') : 'None'}</td>
             <td class:route-coverage__missing={Boolean(route.missingParentRefs?.length)}>
-              {route.missingParentRefs?.length ? route.missingParentRefs.map((parent) => parent.name).join(', ') : '—'}
+              {route.missingParentRefs?.length ? route.missingParentRefs.map((parent) => parent.name).join(', ') : 'None'}
             </td>
           </tr>
         {/each}
@@ -177,10 +178,10 @@
     <nav class="route-coverage__pagination" aria-label="Route coverage pages">
       <p>Page {page} of {totalPages}</p>
       <div>
-        <button type="button" on:click={() => goto(1)} disabled={page === 1} aria-label="First page">First</button>
-        <button type="button" on:click={() => goto(page - 1)} disabled={page === 1}>Previous</button>
-        <button type="button" on:click={() => goto(page + 1)} disabled={page === totalPages}>Next</button>
-        <button type="button" on:click={() => goto(totalPages)} disabled={page === totalPages} aria-label="Last page">Last</button>
+        <button type="button" class="btn btn-outline" on:click={() => goto(1)} disabled={page === 1} aria-label="First page">First</button>
+        <button type="button" class="btn btn-outline" on:click={() => goto(page - 1)} disabled={page === 1}>Previous</button>
+        <button type="button" class="btn btn-outline" on:click={() => goto(page + 1)} disabled={page === totalPages}>Next</button>
+        <button type="button" class="btn btn-outline" on:click={() => goto(totalPages)} disabled={page === totalPages} aria-label="Last page">Last</button>
       </div>
     </nav>
   {/if}
@@ -215,22 +216,6 @@
     font-size: 0.8125rem;
   }
 
-  input,
-  select,
-  button {
-    font: inherit;
-  }
-
-  input,
-  select {
-    box-sizing: border-box;
-    min-height: 2.25rem;
-    border: 1px solid var(--color-base-300);
-    border-radius: 6px;
-    background: var(--color-base-50);
-    color: var(--color-base-content);
-    padding: 0.35rem 0.5rem;
-  }
 
   .route-coverage__matches {
     margin: 0 0 0 auto;
@@ -309,34 +294,8 @@
     gap: 0.375rem;
   }
 
-  .route-coverage__pagination button {
-    min-height: 2.25rem;
-    border: 1px solid var(--color-base-300);
-    border-radius: 6px;
-    background: var(--color-base-50);
-    color: var(--color-base-content);
-    cursor: pointer;
-    padding: 0.35rem 0.5rem;
-  }
-
-  .route-coverage__pagination button:disabled {
-    cursor: not-allowed;
-    opacity: 0.55;
-  }
-
-  button:focus-visible,
-  input:focus-visible,
-  select:focus-visible {
-    outline: 2px solid var(--color-primary);
-    outline-offset: 2px;
-  }
 
   @media (max-width: 640px) {
-    input,
-    select,
-    .route-coverage__pagination button {
-      min-height: 2.75rem;
-    }
 
     .route-coverage__matches {
       flex-basis: 100%;

@@ -90,10 +90,10 @@
       {#if selected.backendRefs?.length}
         <section class="backend-section" aria-labelledby="backend-refs-heading">
           <h3 id="backend-refs-heading">Backend references</h3>
-          <div class="backend-table-wrap">
-            <table class="table">
+          <div class="backend-table-wrap" role="region" aria-label="Backend references table" tabindex="0">
+            <table class="table" aria-labelledby="backend-refs-heading">
               <thead>
-                <tr><th>Service</th><th>Namespace</th><th>Resolved</th><th>Cross-namespace</th><th>Grant</th></tr>
+                <tr><th scope="col">Service</th><th scope="col">Namespace</th><th scope="col">Resolved</th><th scope="col">Cross-namespace</th><th scope="col">Grant</th></tr>
               </thead>
               <tbody>
                 {#each selected.backendRefs as backend}
@@ -132,8 +132,6 @@
     width: 100%;
     min-width: 0;
     height: 100%;
-    border: 1px solid var(--color-base-300);
-    border-radius: 6px;
     background: var(--color-base-50);
     color: var(--color-base-content);
   }

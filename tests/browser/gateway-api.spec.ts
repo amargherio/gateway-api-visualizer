@@ -525,3 +525,102 @@ test('inserts each version-aware sample without rewriting it after a release cha
   expect(afterVersionChange).toBe(beforeVersionChange);
   await expect.poll(async () => yamlMarkers(await readMarkers(page)).length).toBeGreaterThan(0);
 });
+
+test('supports keyboard entry, editor escape, and return from resource inspection', async ({
+  page,
+}) => {
+  await waitForEditor(page);
+  await page.keyboard.press('Tab');
+  const skip = page.getByRole('link', { name: 'Skip to main content' });
+  await expect(skip).toBeFocused();
+  await skip.press('Enter');
+  await expect(page.getByRole('main')).toBeFocused();
+
+  await setEditorValue(page, validMixedDocuments);
+  const resource = page.locator('.route-coverage__resource').first();
+  await resource.focus();
+  await resource.press('Enter');
+  await expect(page.locator('#resource-details-heading')).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(resource).toBeFocused();
+  await expect(page.getByRole('complementary', { name: 'Resource details' })).toHaveCount(0);
+
+  const editor = page.getByRole('textbox', { name: 'Manifest YAML or JSON editor' });
+  await editor.focus();
+  await page.keyboard.press('Tab');
+  await expect(page.getByRole('searchbox', { name: 'Search', exact: true })).toBeFocused();
+});
+
+test('keeps graph and editor usable at narrow widths with expanded diagnostics', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 320, height: 844 });
+  await waitForEditor(page);
+  await setEditorValue(page, validMixedDocuments);
+  const graph = page.getByRole('img', { name: /Relationship graph/ });
+  await expect(graph).toBeVisible();
+  expect((await graph.boundingBox())!.height).toBeGreaterThanOrEqual(320);
+  const controls = await page
+    .getByRole('group', { name: 'Relationship graph controls' })
+    .boundingBox();
+  expect((await graph.boundingBox())!.y).toBeGreaterThanOrEqual(controls!.y + controls!.height);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(320);
+
+  await setEditorValue(page, 'kind: [\n');
+  const parserToggle = page.getByRole('button', { name: /YAML parser error/ });
+  await expect(parserToggle).toBeVisible();
+  await expect(page.getByRole('button', { name: /CRD diagnostics:/ })).toBeVisible();
+  const editor = page.locator('.monaco-editor');
+  await expect(editor).toBeVisible();
+  expect((await editor.boundingBox())!.height).toBeGreaterThanOrEqual(240);
+  const region = await page.getByRole('region', { name: 'Manifest', exact: true }).boundingBox();
+  const editorBox = (await editor.boundingBox())!;
+  expect(editorBox.y + editorBox.height).toBeLessThanOrEqual(region!.y + region!.height);
+
+  await parserToggle.focus();
+  expect(
+    await parserToggle.evaluate((el) => {
+      const style = getComputedStyle(el);
+      return style.outlineStyle !== 'none' && Number.parseFloat(style.outlineWidth) >= 2;
+    }),
+  ).toBe(true);
+  await parserToggle.press('Enter');
+  await expect(parserToggle).toHaveAttribute('aria-expanded', 'false');
+  await parserToggle.press('Enter');
+  await expect(parserToggle).toHaveAttribute('aria-expanded', 'true');
+
+  const schemaToggle = page.getByRole('button', { name: /CRD diagnostics:/ });
+  await schemaToggle.press('Enter');
+  await expect(schemaToggle).toHaveAttribute('aria-expanded', 'false');
+  await schemaToggle.press('Enter');
+  await expect(schemaToggle).toHaveAttribute('aria-expanded', 'true');
+});
+
+test('maintains AA input-boundary contrast in both themes', async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await waitForEditor(page);
+  for (const theme of ['light', 'dark']) {
+    const current = await page.locator('html').getAttribute('data-theme');
+    if (current !== theme) await page.getByRole('button', { name: /Switch to .* mode/ }).click();
+    const contrast = await page.locator('#route-search').evaluate((el) => {
+      const context = document.createElement('canvas').getContext('2d')!;
+      const luminance = (color: string) => {
+        context.clearRect(0, 0, 1, 1);
+        context.fillStyle = color;
+        context.fillRect(0, 0, 1, 1);
+        const rgb = Array.from(context.getImageData(0, 0, 1, 1).data)
+          .slice(0, 3)
+          .map((value) => {
+            const channel = value / 255;
+            return channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4;
+          });
+        return rgb[0] * 0.2126 + rgb[1] * 0.7152 + rgb[2] * 0.0722;
+      };
+      const style = getComputedStyle(el);
+      const border = luminance(style.borderColor);
+      const background = luminance(style.backgroundColor);
+      return (Math.max(border, background) + 0.05) / (Math.min(border, background) + 0.05);
+    });
+    expect(contrast).toBeGreaterThanOrEqual(3);
+  }
+});

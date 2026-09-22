@@ -1,14 +1,14 @@
 {
 	"name": "gateway-api-visualizer",
 	"private": true,
-	"version": "0.2.0",
+	"version": "1.0.0",
 	"description": "Visualize Kubernetes Gateway API resource coverage (Gateways -> Routes) from local YAML.",
 	"type": "module",
 	"packageManager": "pnpm@9.0.0",
 	"scripts": {
 		"dev": "vite",
-		"build": "vite build && bash ./scripts/post-build.sh",
-		"deploy": "vite build && bash ./scripts/post-build.sh",
+		"build": "vite build",
+		"deploy": "vite build",
 		"preview": "vite preview",
 		"lint": "oxlint src/ --tsconfig tsconfig.json",
 		"typecheck": "tsgo --project tsconfig.json --noEmit",

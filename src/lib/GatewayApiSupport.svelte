@@ -35,8 +35,8 @@
 
     <section aria-labelledby="gateway-api-crds-heading">
       <h3 id="gateway-api-crds-heading">Audited CRDs</h3>
-      <div class="gateway-api-support__table-wrap">
-        <table>
+      <div class="gateway-api-support__table-wrap" role="region" aria-label="Audited CRDs table" tabindex="0">
+        <table aria-labelledby="gateway-api-crds-heading">
           <thead>
             <tr>
               <th scope="col">Kind</th>
@@ -72,6 +72,7 @@
         <div>
           <label for="gateway-api-feature-filter">Filter features</label>
           <input
+            class="input input-bordered"
             id="gateway-api-feature-filter"
             type="search"
             placeholder="Feature identifier"
@@ -145,8 +146,7 @@
     min-width: 0;
     max-width: 100%;
     overflow: hidden;
-    border: 1px solid var(--color-base-300);
-    border-radius: 6px;
+    border-top: 1px solid var(--color-base-300);
     background: var(--color-base-50);
     color: var(--color-base-content);
   }
@@ -163,6 +163,10 @@
   a:focus-visible {
     outline: 2px solid var(--color-primary);
     outline-offset: 2px;
+  }
+
+  summary:focus-visible {
+    outline-offset: -3px;
   }
 
   .gateway-api-support__content {
@@ -250,16 +254,6 @@
     margin-bottom: 0.25rem;
   }
 
-  input {
-    box-sizing: border-box;
-    min-height: 2.25rem;
-    border: 1px solid var(--color-base-300);
-    border-radius: 6px;
-    background: var(--color-base-50);
-    color: var(--color-base-content);
-    font: inherit;
-    padding: 0.35rem 0.5rem;
-  }
 
   .gateway-api-support__feature-groups {
     display: grid;
@@ -323,9 +317,6 @@
   }
 
   @media (max-width: 640px) {
-    input {
-      min-height: 2.75rem;
-    }
 
     .gateway-api-support__feature-groups {
       grid-template-columns: 1fr;

@@ -6,6 +6,7 @@
   --color-base-100: oklch(0.97 0.006 210);
   --color-base-200: oklch(0.94 0.008 210);
   --color-base-300: oklch(0.85 0.012 210);
+  --color-control-border: oklch(0.6 0.02 210);
   --color-base-content: oklch(0.25 0.015 210);
   --color-secondary: oklch(0.46 0.015 210);
   --color-primary: oklch(0.45 0.085 210);
@@ -32,6 +33,7 @@
   --color-base-100: oklch(0.17 0.01 210);
   --color-base-200: oklch(0.24 0.01 210);
   --color-base-300: oklch(0.34 0.01 210);
+  --color-control-border: oklch(0.62 0.02 210);
   --color-base-content: oklch(0.93 0.008 210);
   --color-secondary: oklch(0.74 0.012 210);
   --color-primary: oklch(0.78 0.1 210);
@@ -52,6 +54,10 @@
   --shadow: 0 2px 8px rgb(0 0 0 / 0.32);
 }
 
+html {
+  font-size: 100%;
+}
+
 html,
 body {
   min-height: 100%;
@@ -59,7 +65,10 @@ body {
   background: var(--color-base-100);
   color: var(--color-base-content);
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
-  font-size: 14px;
+}
+
+body {
+  font-size: 0.875rem;
 }
 
 body.app-root {
@@ -124,7 +133,7 @@ select:disabled {
 
 .btn:hover:not(:disabled) {
   background: var(--color-base-200);
-  border-color: var(--color-base-300);
+  border-color: var(--color-control-border);
 }
 
 .btn-primary {
@@ -151,7 +160,7 @@ select:disabled {
 
 .btn-outline {
   background: transparent;
-  border-color: var(--color-base-300);
+  border-color: var(--color-control-border);
 }
 
 .btn-sm,
@@ -176,7 +185,7 @@ select:disabled {
 .select {
   min-height: 36px;
   padding: 0.4375rem 0.625rem;
-  border: 1px solid var(--color-base-300);
+  border: 1px solid var(--color-control-border);
   border-radius: 6px;
   background: var(--color-base-50);
   color: var(--color-base-content);
@@ -200,7 +209,7 @@ select:disabled {
 
 .input-bordered,
 .select-bordered {
-  border-color: var(--color-base-300);
+  border-color: var(--color-control-border);
 }
 
 .input-sm,

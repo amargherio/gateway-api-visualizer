@@ -1,0 +1,40 @@
+name: Feature request
+description: Propose a better manifest inspection or visualization workflow.
+title: '[Feature] '
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Describe the job you need to do, not just a control you want added.
+        Use synthetic examples and omit credentials or private cluster details.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem would this solve?
+      description: Who encounters it, in what workflow, and what is difficult today?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: Explain the user-visible result. Include the Gateway API release or resource kinds if relevant.
+    validations:
+      required: true
+  - type: textarea
+    id: success
+    attributes:
+      label: How would we know it works?
+      description: Describe a concrete scenario and its expected outcome, including keyboard or mobile use where relevant.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives or workarounds
+      description: Optional. What have you tried, and why is it insufficient?
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Optional. Add sanitized examples, sketches, or links to relevant Gateway API specifications.

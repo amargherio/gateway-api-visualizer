@@ -1,0 +1,342 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-09-22T15:31:22.273Z",
+  "title": "Design System: Gateway API Visualizer",
+  "extensions": {
+    "colorMeta": {
+      "surface-canvas": {
+        "role": "neutral",
+        "displayName": "Mist Canvas",
+        "canonical": "oklch(0.97 0.006 210)",
+        "tonalRamp": [
+          "oklch(0.15 0.006 210)",
+          "oklch(0.27 0.006 210)",
+          "oklch(0.39 0.006 210)",
+          "oklch(0.51 0.006 210)",
+          "oklch(0.63 0.006 210)",
+          "oklch(0.75 0.006 210)",
+          "oklch(0.87 0.006 210)",
+          "oklch(0.97 0.006 210)"
+        ]
+      },
+      "surface-panel": {
+        "role": "neutral",
+        "displayName": "Paper Panel",
+        "canonical": "oklch(0.99 0.004 210)",
+        "tonalRamp": [
+          "oklch(0.15 0.004 210)",
+          "oklch(0.27 0.004 210)",
+          "oklch(0.39 0.004 210)",
+          "oklch(0.51 0.004 210)",
+          "oklch(0.63 0.004 210)",
+          "oklch(0.75 0.004 210)",
+          "oklch(0.87 0.004 210)",
+          "oklch(0.99 0.004 210)"
+        ]
+      },
+      "border-structural": {
+        "role": "neutral",
+        "displayName": "Rule Gray",
+        "canonical": "oklch(0.85 0.012 210)",
+        "tonalRamp": [
+          "oklch(0.15 0.012 210)",
+          "oklch(0.27 0.012 210)",
+          "oklch(0.39 0.012 210)",
+          "oklch(0.51 0.012 210)",
+          "oklch(0.63 0.012 210)",
+          "oklch(0.75 0.012 210)",
+          "oklch(0.85 0.012 210)",
+          "oklch(0.95 0.012 210)"
+        ]
+      },
+      "text-primary": {
+        "role": "neutral",
+        "displayName": "Panel Ink",
+        "canonical": "oklch(0.25 0.015 210)",
+        "tonalRamp": [
+          "oklch(0.15 0.015 210)",
+          "oklch(0.25 0.015 210)",
+          "oklch(0.37 0.015 210)",
+          "oklch(0.49 0.015 210)",
+          "oklch(0.61 0.015 210)",
+          "oklch(0.73 0.015 210)",
+          "oklch(0.85 0.015 210)",
+          "oklch(0.95 0.015 210)"
+        ]
+      },
+      "text-secondary": {
+        "role": "secondary",
+        "displayName": "Drafting Annotation",
+        "canonical": "oklch(0.46 0.015 210)",
+        "tonalRamp": [
+          "oklch(0.15 0.015 210)",
+          "oklch(0.27 0.015 210)",
+          "oklch(0.39 0.015 210)",
+          "oklch(0.51 0.015 210)",
+          "oklch(0.63 0.015 210)",
+          "oklch(0.75 0.015 210)",
+          "oklch(0.87 0.015 210)",
+          "oklch(0.95 0.015 210)"
+        ]
+      },
+      "instrument-cyan": {
+        "role": "primary",
+        "displayName": "Instrument Cyan",
+        "canonical": "oklch(0.45 0.085 210)",
+        "tonalRamp": [
+          "oklch(0.15 0.04 210)",
+          "oklch(0.27 0.06 210)",
+          "oklch(0.39 0.08 210)",
+          "oklch(0.51 0.085 210)",
+          "oklch(0.63 0.085 210)",
+          "oklch(0.75 0.08 210)",
+          "oklch(0.87 0.05 210)",
+          "oklch(0.95 0.025 210)"
+        ]
+      },
+      "status-success": {
+        "role": "tertiary",
+        "displayName": "Status Green",
+        "canonical": "oklch(0.4 0.1 155)",
+        "tonalRamp": [
+          "oklch(0.15 0.04 155)",
+          "oklch(0.27 0.07 155)",
+          "oklch(0.39 0.1 155)",
+          "oklch(0.51 0.1 155)",
+          "oklch(0.63 0.09 155)",
+          "oklch(0.75 0.075 155)",
+          "oklch(0.87 0.045 155)",
+          "oklch(0.95 0.02 155)"
+        ]
+      },
+      "status-warning": {
+        "role": "tertiary",
+        "displayName": "Status Amber",
+        "canonical": "oklch(0.43 0.1 75)",
+        "tonalRamp": [
+          "oklch(0.15 0.04 75)",
+          "oklch(0.27 0.07 75)",
+          "oklch(0.39 0.1 75)",
+          "oklch(0.51 0.1 75)",
+          "oklch(0.63 0.09 75)",
+          "oklch(0.75 0.075 75)",
+          "oklch(0.87 0.045 75)",
+          "oklch(0.95 0.02 75)"
+        ]
+      },
+      "status-error": {
+        "role": "tertiary",
+        "displayName": "Status Red",
+        "canonical": "oklch(0.46 0.13 25)",
+        "tonalRamp": [
+          "oklch(0.15 0.05 25)",
+          "oklch(0.27 0.09 25)",
+          "oklch(0.39 0.13 25)",
+          "oklch(0.51 0.13 25)",
+          "oklch(0.63 0.11 25)",
+          "oklch(0.75 0.085 25)",
+          "oklch(0.87 0.05 25)",
+          "oklch(0.95 0.025 25)"
+        ]
+      },
+      "border-control": {
+        "role": "neutral",
+        "displayName": "Control Rule",
+        "canonical": "oklch(0.6 0.02 210)",
+        "tonalRamp": [
+          "oklch(0.15 0.02 210)",
+          "oklch(0.27 0.02 210)",
+          "oklch(0.39 0.02 210)",
+          "oklch(0.51 0.02 210)",
+          "oklch(0.63 0.02 210)",
+          "oklch(0.75 0.02 210)",
+          "oklch(0.87 0.02 210)",
+          "oklch(0.95 0.02 210)"
+        ]
+      },
+      "dark-border-control": {
+        "role": "neutral",
+        "displayName": "Night Control Rule",
+        "canonical": "oklch(0.62 0.02 210)",
+        "tonalRamp": [
+          "oklch(0.15 0.02 210)",
+          "oklch(0.27 0.02 210)",
+          "oklch(0.39 0.02 210)",
+          "oklch(0.51 0.02 210)",
+          "oklch(0.63 0.02 210)",
+          "oklch(0.75 0.02 210)",
+          "oklch(0.87 0.02 210)",
+          "oklch(0.95 0.02 210)"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "headline": {
+        "displayName": "Workbench Headline",
+        "purpose": "Application identity only."
+      },
+      "title": {
+        "displayName": "Region Title",
+        "purpose": "Audit, editor, topology, and detail region headings."
+      },
+      "body": {
+        "displayName": "Interface Body",
+        "purpose": "Controls, findings, descriptions, and table content."
+      },
+      "label": {
+        "displayName": "Technical Label",
+        "purpose": "Form labels, eyebrows, captions, and metadata at regular weight."
+      },
+      "label-strong": {
+        "displayName": "Emphasized Label",
+        "purpose": "Table headers and resource-detail labels at 600 weight."
+      },
+      "mono": {
+        "displayName": "Exact Value",
+        "purpose": "Build identifiers, resource data, and machine-readable values."
+      },
+      "button": {
+        "displayName": "Button Label",
+        "purpose": "Action labels at 600 weight."
+      }
+    },
+    "motion": [
+      {
+        "name": "state-fast",
+        "value": "160ms ease-out",
+        "purpose": "Color and opacity feedback for controls and theme changes."
+      },
+      {
+        "name": "reduced-motion",
+        "value": "0.01ms",
+        "purpose": "Near-zero transition and animation duration when reduced motion is requested."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "mobile-controls",
+        "value": "600px"
+      },
+      {
+        "name": "mobile-targets",
+        "value": "640px"
+      },
+      {
+        "name": "stacked-workspace",
+        "value": "1099px"
+      },
+      {
+        "name": "details-column",
+        "value": "1440px"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Primary action with restrained Instrument Cyan emphasis.",
+      "html": "<button class=\"ds-btn-primary\">Insert Sample</button>",
+      "css": ".ds-btn-primary { min-height: 36px; padding: 0.4375rem 0.75rem; border: 1px solid var(--color-primary); border-radius: 6px; background: var(--color-primary); color: var(--color-on-primary); font: 600 14px/1.25 -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; transition: background-color 160ms ease-out, border-color 160ms ease-out; } .ds-btn-primary:hover { background: var(--color-primary-hover); border-color: var(--color-primary-hover); } .ds-btn-primary:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; } .ds-btn-primary:disabled { opacity: 0.55; cursor: not-allowed; } @media (max-width: 640px) { .ds-btn-primary { min-height: 44px; } } @media (prefers-reduced-motion: reduce) { .ds-btn-primary { transition-duration: 0.01ms; } }"
+    },
+    {
+      "name": "Outline Button",
+      "kind": "button",
+      "refersTo": "button-outline",
+      "description": "Secondary action that preserves the flat workbench hierarchy.",
+      "html": "<button class=\"ds-btn-outline\">Reset graph filters</button>",
+      "css": ".ds-btn-outline { min-height: 36px; padding: 0.4375rem 0.75rem; border: 1px solid var(--color-control-border); border-radius: 6px; background: transparent; color: var(--color-base-content); font: 600 14px/1.25 -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; transition: background-color 160ms ease-out, border-color 160ms ease-out; } .ds-btn-outline:hover { background: var(--color-base-200); } .ds-btn-outline:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; } .ds-btn-outline:disabled { opacity: 0.55; cursor: not-allowed; } @media (max-width: 640px) { .ds-btn-outline { min-height: 44px; } } @media (prefers-reduced-motion: reduce) { .ds-btn-outline { transition-duration: 0.01ms; } }"
+    },
+    {
+      "name": "Search Field",
+      "kind": "input",
+      "refersTo": "field",
+      "description": "Compact technical filter field with explicit focus treatment.",
+      "html": "<label class=\"ds-field-label\">Search<input class=\"ds-field\" type=\"search\" placeholder=\"Name or namespace\"></label>",
+      "css": ".ds-field-label { display: grid; gap: 3px; color: var(--color-secondary); font: 400 12px/1.25 -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; } .ds-field { min-height: 36px; padding: 0.4375rem 0.625rem; border: 1px solid var(--color-control-border); border-radius: 6px; background: var(--color-base-50); color: var(--color-base-content); font: 400 14px/1.25 -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; transition: border-color 160ms ease-out; } .ds-field:hover { border-color: var(--color-secondary); } .ds-field:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; } .ds-field:disabled { opacity: 0.55; cursor: not-allowed; } @media (max-width: 640px) { .ds-field { min-height: 44px; } } @media (prefers-reduced-motion: reduce) { .ds-field { transition-duration: 0.01ms; } }"
+    },
+    {
+      "name": "Status Chip",
+      "kind": "chip",
+      "refersTo": "status-chip",
+      "description": "Compact metadata label with a structural border and textual state.",
+      "html": "<span class=\"ds-status-chip\">Standard + experimental</span>",
+      "css": ".ds-status-chip { display: inline-flex; align-items: center; min-height: 22px; padding: 5px 8px; border: 1px solid var(--color-base-300); border-radius: 999px; background: transparent; color: var(--color-secondary); font: 400 12px/1.25 -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; }"
+    },
+    {
+      "name": "Workbench Panel",
+      "kind": "card",
+      "refersTo": "panel",
+      "description": "Flat structural region for the audit target, editor, topology, or details.",
+      "html": "<section class=\"ds-panel\"><header class=\"ds-panel-header\">Relationships</header><div class=\"ds-panel-body\">Local relationship preview</div></section>",
+      "css": ".ds-panel { overflow: hidden; border: 1px solid var(--color-base-300); border-radius: 6px; background: var(--color-base-50); color: var(--color-base-content); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; } .ds-panel-header { background: var(--color-base-100); padding: 10px 14px; border-bottom: 1px solid var(--color-base-300); font-size: 16px; font-weight: 600; } .ds-panel-body { min-height: 96px; padding: 16px; color: var(--color-secondary); font-size: 14px; }"
+    },
+    {
+      "name": "Top Header",
+      "kind": "nav",
+      "description": "Shallow product identity bar with build metadata and theme control.",
+      "html": "<header class=\"ds-top-header\"><div><strong>Gateway API Visualizer</strong><code>Version · commit</code></div><button aria-label=\"Switch to dark mode\"><svg aria-hidden=\"true\" focusable=\"false\" viewBox=\"0 0 20 20\" width=\"16\" height=\"16\"><path d=\"M17.293 13.293A8 8 0 016.707 2.707a8.001 8.001 0 1010.586 10.586z\" fill=\"currentColor\"></path></svg></button></header>",
+      "css": ".ds-top-header { min-height: 58px; padding: 0 24px; display: flex; align-items: center; justify-content: space-between; gap: 16px; border-bottom: 1px solid var(--color-base-300); background: var(--color-base-50); color: var(--color-base-content); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; } .ds-top-header div { display: flex; align-items: baseline; gap: 12px; } .ds-top-header strong { font-size: 18px; font-weight: 600; letter-spacing: -0.01em; } .ds-top-header code { color: var(--color-secondary); font-size: 12px; } .ds-top-header button { width: 36px; min-height: 36px; border: 1px solid transparent; border-radius: 999px; background: transparent; color: var(--color-base-content); } .ds-top-header button:hover { background: var(--color-base-200); } .ds-top-header button:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Field Console",
+    "overview": "Gateway API Visualizer is a technical drafting table for platform engineers. It should feel purpose-built for comparing schemas, editing manifests, and tracing resource relationships: compact, tactile, and exact without becoming visually severe. The interface uses cool, mist-tinted surfaces, structural one-pixel borders, and a restrained Instrument Cyan accent. Hierarchy comes from alignment, density, labels, and tonal layers. Decoration never competes with the manifest or topology.",
+    "keyCharacteristics": [
+      "Compact engineering-workbench density with 36px controls and 44px mobile targets.",
+      "Flat, bordered regions that read as one coordinated workspace.",
+      "Instrument Cyan reserved for action, focus, selection, and graph semantics.",
+      "Light and dark themes derived from the same cool blue-green neutral axis.",
+      "State communication that always pairs color with text or structure."
+    ],
+    "rules": [
+      {
+        "name": "The Working Surface Rule",
+        "body": "Every major region must help inspect, compare, edit, or navigate. If a surface has no operational role, remove it.",
+        "section": "overview"
+      },
+      {
+        "name": "The Instrument Mark Rule",
+        "body": "Instrument Cyan is functional, not decorative. Never use it as a large background wash or ornamental stripe.",
+        "section": "colors"
+      },
+      {
+        "name": "The Shared Axis Rule",
+        "body": "Light and dark themes stay on the same 210-degree blue-green hue axis so switching themes preserves identity and semantic hierarchy.",
+        "section": "colors"
+      },
+      {
+        "name": "The Native Instrument Rule",
+        "body": "Use the system sans stack for all interface controls and data labels. Monospace is reserved for exact machine-readable values, never for decorative atmosphere.",
+        "section": "typography"
+      },
+      {
+        "name": "The Flat Workbench Rule",
+        "body": "Audit, manifest, topology, summary, table, and details regions are bordered, not floated. Elevation shadows are not part of the live workbench system.",
+        "section": "elevation"
+      },
+      {
+        "name": "The Familiar Control Rule",
+        "body": "Use native buttons, inputs, selects, summaries, and tables with consistent styling. Never invent a novel interaction where a standard control already communicates the behavior.",
+        "section": "components"
+      }
+    ],
+    "dos": [
+      "Do keep the audit target, exact release, channel, and current status visible.",
+      "Do preserve the 6px control and region radius, 36px desktop controls, and 44px mobile targets.",
+      "Do use one-pixel structural borders and tonal layers as the default depth cue.",
+      "Do pair success, warning, error, and selection color with explicit text or shape.",
+      "Do retain full keyboard operation, visible focus, reduced-motion behavior, and responsive stacking without page-level horizontal overflow.",
+      "Do keep editor and topology central, with details and release support disclosed progressively."
+    ],
+    "donts": [
+      "Don't use marketing layouts, hero metrics, decorative effects, glassmorphism, gradients, emoji headings, nested cards, or oversized introductions.",
+      "Don't use color without semantic purpose or spread Instrument Cyan across inactive surfaces.",
+      "Don't use a border-left or border-right greater than 1px as a colored accent on cards, list items, callouts, or alerts.",
+      "Don't use gradient text, decorative blur, ornamental motion, or orchestrated page-load sequences.",
+      "Don't present parent-reference coverage as successful attachment, CRD compatibility as Kubernetes admission, or catalogued features as controller support.",
+      "Don't introduce display fonts, custom scrollbars, non-standard form controls, or inconsistent component vocabulary."
+    ]
+  }
+}

@@ -110,8 +110,8 @@
   }>();
 
   $: queueSchemaUpdate(gatewayApiVersion, gatewayApiBundle, gatewayApiLoadError);
-  $: if (validationErrors.length > 0 && !errorsExpanded) errorsExpanded = true;
-  $: if (crdDiagnostics.length > 0 && !crdDiagnosticsExpanded) crdDiagnosticsExpanded = true;
+  $: errorsExpanded = validationErrors.length > 0;
+  $: crdDiagnosticsExpanded = crdDiagnostics.length > 0;
 
   onMount(() => {
     mounted = true;
@@ -144,6 +144,39 @@
       monaco = await import('monaco-editor/editor');
       if (destroyed) return;
 
+      if (!editor) {
+        if (!monaco.languages.getLanguages().some(language => language.id === 'yaml')) {
+          monaco.languages.register({ id: 'yaml' });
+        }
+        configureYamlTokens();
+        configureThemes();
+
+        const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+        editor = monaco.editor.create(container, {
+          value: initialValue,
+          language: 'yaml',
+          theme: isDark ? 'yamlDark' : 'yamlLight',
+          ariaLabel: 'Manifest YAML or JSON editor',
+          tabFocusMode: true,
+          automaticLayout: true,
+          minimap: { enabled: false },
+          scrollBeyondLastLine: false,
+          wordWrap: 'on',
+          lineNumbers: 'on',
+          folding: true,
+          fontSize: 14,
+          fontFamily: "'JetBrains Mono', 'Fira Code', 'Consolas', 'Monaco', 'Courier New', monospace",
+          lineHeight: 1.6,
+          padding: { top: 16, bottom: 16 },
+        });
+
+        layoutHandle = requestAnimationFrame(() => editor?.layout());
+        delayedLayoutHandle = setTimeout(() => editor?.layout(), 250);
+        setupEditorObservers();
+        detectLanguageForBadge();
+        validateContent();
+      }
+
       const { configureMonacoYaml } = await import('monaco-yaml');
       if (destroyed || !monaco) return;
       yamlService = configureMonacoYaml(monaco, {
@@ -156,36 +189,6 @@
       });
       yamlServiceConfigured = true;
       validatorInitializationFailed = false;
-
-
-      if (!monaco.languages.getLanguages().some(language => language.id === 'yaml')) {
-        monaco.languages.register({ id: 'yaml' });
-      }
-      configureYamlTokens();
-      configureThemes();
-
-      const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
-      editor = monaco.editor.create(container, {
-        value: initialValue,
-        language: 'yaml',
-        theme: isDark ? 'yamlDark' : 'yamlLight',
-        automaticLayout: true,
-        minimap: { enabled: false },
-        scrollBeyondLastLine: false,
-        wordWrap: 'on',
-        lineNumbers: 'on',
-        folding: true,
-        fontSize: 14,
-        fontFamily: "'JetBrains Mono', 'Fira Code', 'Consolas', 'Monaco', 'Courier New', monospace",
-        lineHeight: 1.6,
-        padding: { top: 16, bottom: 16 },
-      });
-
-      layoutHandle = requestAnimationFrame(() => editor?.layout());
-      delayedLayoutHandle = setTimeout(() => editor?.layout(), 250);
-      setupEditorObservers();
-      detectLanguageForBadge();
-      validateContent();
       processSchemaUpdates();
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -200,8 +203,6 @@
     } finally {
       validatorInitializationInProgress = false;
     }
-
-
   }
 
   function configureYamlTokens() {
@@ -232,10 +233,10 @@
       rules: [
         { token: 'key', foreground: '0451a5' },
         { token: 'string', foreground: 'a31515' },
-        { token: 'number', foreground: '098658' },
+        { token: 'number', foreground: '087448' },
         { token: 'keyword', foreground: '0000ff' },
         { token: 'comment', foreground: '008000' },
-        { token: 'delimiter', foreground: '000000' },
+        { token: 'delimiter', foreground: '263738' },
         { token: 'tag', foreground: '800000' },
       ],
       colors: {
@@ -628,6 +629,15 @@
     min-width: 0;
   }
 
+  .editor-toolbar { flex-wrap: wrap; flex-shrink: 0; }
+  .editor-surface { flex: 1 0 240px; min-height: 240px; width: 100%; }
+  .editor-help { margin: 0; padding: 4px 16px; color: var(--color-secondary); font-size: 0.75rem; border-bottom: 1px solid var(--color-base-300); }
+  .editor-notice { flex-shrink: 0; border-bottom: 1px solid var(--color-base-300); background: color-mix(in srgb, var(--color-warning) 8%, var(--color-base-50)); }
+  .editor-error { background: color-mix(in srgb, var(--color-error) 8%, var(--color-base-50)); }
+  .diagnostic-toggle:hover, .diagnostic-item:hover { background: var(--color-base-200); }
+  .diagnostic-toggle:focus-visible, .diagnostic-item:focus-visible { outline-offset: -3px; }
+  .diagnostic-list li + li { border-top: 1px solid var(--color-base-300); }
+
   @media (max-width: 600px) {
     .editor-toolbar {
       align-items: stretch;
@@ -652,9 +662,9 @@
 </style>
 
 
-<div class="h-full flex flex-col bg-base-100 border border-base-300 rounded-lg overflow-hidden min-h-0" style="min-height:0;">
+<div class="flex-1 flex flex-col bg-base-50 min-h-0">
   {#if secretDetected}
-    <div class="bg-red-600/20 border-b border-warning text-warning-content px-4 py-3 flex flex-col gap-2">
+    <div role="alert" class="editor-notice px-4 py-3 flex flex-col gap-2">
       <div class="font-semibold flex items-center gap-2">
         <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true"><path d="M8.257 3.099c.765-1.36 2.72-1.36 3.485 0l6.518 11.602c.75 1.336-.213 2.999-1.742 2.999H3.48c-1.53 0-2.493-1.663-1.743-2.999L8.257 3.1zM11 14a1 1 0 10-2 0 1 1 0 002 0zm-1-2a.75.75 0 01-.75-.75v-3.5a.75.75 0 011.5 0v3.5A.75.75 0 0110 12z"/></svg>
         Potential credentials detected; input cleared.
@@ -671,7 +681,7 @@
   {/if}
 
   <div class="editor-toolbar flex items-center justify-between gap-2 px-4 py-3 bg-base-200 border-b border-base-300">
-    <div class="editor-status flex items-center gap-3">
+    <div class="editor-status flex items-center gap-3" role="status" aria-live="polite" aria-atomic="true">
       <span class="badge badge-sm badge-outline" title="Detected input format">{currentLanguage}</span>
       <div class="text-sm font-medium text-base-content">
         {#if validationErrors.length > 0}
@@ -679,7 +689,7 @@
         {:else if parsedObjects.gateways.length + parsedObjects.routes.length > 0}
           <span class="text-success">{parsedObjects.gateways.length} gateway{parsedObjects.gateways.length !== 1 ? 's' : ''}, {parsedObjects.routes.length} route{parsedObjects.routes.length !== 1 ? 's' : ''}</span>
         {:else}
-          <span class="text-base-content/60">No YAML content</span>
+          <span class="text-secondary">No YAML content</span>
         {/if}
       </div>
     </div>
@@ -690,6 +700,7 @@
         <option value="multi">Multi-gateway (20 routes)</option>
       </select>
       <button
+        type="button"
         class="btn btn-sm btn-primary"
         on:click={() => loadSample(selectedSample)}
         title="Load selected sample YAML"
@@ -699,38 +710,35 @@
       </button>
     </div>
   </div>
+  <p class="editor-help">Tab moves focus. Use F1 for editor commands.</p>
 
   {#if validationErrors.length > 0}
-    <div class="border-b border-error/30 bg-error/5">
-      <button type="button" class="w-full flex items-center justify-between px-4 py-2 text-error font-medium text-left hover:bg-error/10 focus:outline-none" on:click={() => errorsExpanded = !errorsExpanded} aria-expanded={errorsExpanded} aria-controls="yaml-error-panel">
+    <div class="editor-notice editor-error">
+      <button type="button" class="diagnostic-toggle w-full flex items-center justify-between px-4 py-2 text-error font-medium text-left" on:click={() => errorsExpanded = !errorsExpanded} aria-expanded={errorsExpanded} aria-controls="yaml-error-panel">
         <span>{validationErrors.length} YAML parser error{validationErrors.length !== 1 ? 's' : ''}</span>
         <span aria-hidden="true">{errorsExpanded ? '−' : '+'}</span>
       </button>
-      {#if errorsExpanded}
-        <ul id="yaml-error-panel" class="max-h-48 overflow-auto divide-y divide-error/20 text-sm">
+        <ul id="yaml-error-panel" hidden={!errorsExpanded} class="diagnostic-list max-h-48 overflow-auto text-sm">
           {#each validationErrors as error}
-            <li><button type="button" class="w-full px-4 py-2 text-left cursor-pointer hover:bg-error/10" on:click={() => gotoLine(error.line)}><span class="font-mono text-xs mr-2">Ln {error.line}</span>{error.message}</button></li>
+            <li><button type="button" class="diagnostic-item w-full px-4 py-2 text-left cursor-pointer" on:click={() => gotoLine(error.line)}><span class="font-mono text-xs mr-2">Ln {error.line}</span>{error.message}</button></li>
           {/each}
         </ul>
-      {/if}
     </div>
   {/if}
 
   {#if crdDiagnostics.length > 0}
-    <div class="border-b border-warning/30 bg-warning/5">
-      <button type="button" class="w-full flex items-center justify-between px-4 py-2 text-left font-medium hover:bg-warning/10 focus:outline-none" on:click={() => crdDiagnosticsExpanded = !crdDiagnosticsExpanded} aria-expanded={crdDiagnosticsExpanded} aria-controls="crd-diagnostics-panel">
+    <div class="editor-notice">
+      <button type="button" class="diagnostic-toggle w-full flex items-center justify-between px-4 py-2 text-left font-medium" on:click={() => crdDiagnosticsExpanded = !crdDiagnosticsExpanded} aria-expanded={crdDiagnosticsExpanded} aria-controls="crd-diagnostics-panel">
         <span>CRD diagnostics: {crdDiagnostics.length} schema issue{crdDiagnostics.length !== 1 ? 's' : ''}</span>
         <span aria-hidden="true">{crdDiagnosticsExpanded ? '−' : '+'}</span>
       </button>
-      {#if crdDiagnosticsExpanded}
-        <ul id="crd-diagnostics-panel" class="max-h-48 overflow-auto divide-y divide-warning/20 text-sm">
+        <ul id="crd-diagnostics-panel" hidden={!crdDiagnosticsExpanded} class="diagnostic-list max-h-48 overflow-auto text-sm">
           {#each crdDiagnostics as diagnostic}
-            <li><button type="button" class="w-full px-4 py-2 text-left cursor-pointer hover:bg-warning/10" on:click={() => gotoLine(diagnostic.line)}><span class="font-mono text-xs mr-2">Ln {diagnostic.line}</span>{diagnostic.message}</button></li>
+            <li><button type="button" class="diagnostic-item w-full px-4 py-2 text-left cursor-pointer" on:click={() => gotoLine(diagnostic.line)}><span class="font-mono text-xs mr-2">Ln {diagnostic.line}</span>{diagnostic.message}</button></li>
           {/each}
         </ul>
-      {/if}
     </div>
   {/if}
 
-  <div bind:this={container} class="flex-1 min-h-0" style="width:100%;height:100%;min-height:0;"></div>
+  <div bind:this={container} class="editor-surface"></div>
 </div>
