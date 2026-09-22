@@ -54,6 +54,7 @@ export interface GatewayApiAuditState {
   status: 'loading' | 'ready' | 'error';
   diagnostics: GatewayApiDiagnostic[];
   message?: string;
+  documentVersion?: number;
 }
 
 export const gatewayApiReleases: readonly GatewayApiRelease[] =

@@ -1,51 +1,52 @@
 {
-	"name": "gateway-api-visualizer",
-	"private": true,
-	"version": "1.0.0",
-	"description": "Visualize Kubernetes Gateway API resource coverage (Gateways -> Routes) from local YAML.",
-	"type": "module",
-	"packageManager": "pnpm@9.0.0",
-	"scripts": {
-		"dev": "vite",
-		"build": "vite build",
-		"deploy": "vite build",
-		"preview": "vite preview",
-		"lint": "oxlint src/ --tsconfig tsconfig.json",
-		"typecheck": "tsgo --project tsconfig.json --noEmit",
-		"format": "prettier --write .",
-		"test": "vitest --run",
-		"test:browser": "playwright test"
-	},
-	"dependencies": {
-		"cytoscape": "^3.34.3",
-		"js-yaml": "^5.4.2",
-		"monaco-editor": "0.56.0",
-		"monaco-yaml": "^5.5.1",
-		"svelte": "^5.57.1"
-	},
-	"devDependencies": {
-		"@playwright/test": "1.63.0",
-		"@sveltejs/vite-plugin-svelte": "^7.3.0",
-		"@tailwindcss/postcss": "^4.3.3",
-		"@types/node": "^25.5.2",
-		"@typescript/native-preview": "7.0.0-dev.20260501.1",
-		"autoprefixer": "^10.6.1",
-		"oxlint": "^1.73.0",
-		"postcss": "^8.5.28",
-		"prettier": "^3.8.1",
-		"tailwindcss": "^4.3.3",
-		"typescript": "^5.9.3",
-		"vite": "^8.3.0",
-		"vitest": "^4.1.11"
-	},
-	"pnpm": {
-		"overrides": {
-			"monaco-editor>dompurify": "^3.4.15",
-			"vite>esbuild": "-"
-		},
-		"patchedDependencies": {
-			"monaco-editor@0.56.0": "patches/monaco-editor@0.56.0.patch",
-			"monaco-worker-manager@2.0.1": "patches/monaco-worker-manager@2.0.1.patch"
-		}
-	}
+  "name": "gateway-api-visualizer",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Visualize Kubernetes Gateway API resource coverage (Gateways -> Routes) from local YAML.",
+  "type": "module",
+  "packageManager": "pnpm@9.0.0",
+  "scripts": {
+    "dev": "vite",
+    "generate:llms": "node scripts/generate-llms-txt.mjs",
+    "build": "pnpm generate:llms && vite build",
+    "deploy": "pnpm build",
+    "preview": "vite preview",
+    "lint": "oxlint src/ --tsconfig tsconfig.json",
+    "typecheck": "tsgo --project tsconfig.json --noEmit",
+    "format": "prettier --write .",
+    "test": "vitest --run",
+    "test:browser": "playwright test"
+  },
+  "dependencies": {
+    "cytoscape": "^3.34.3",
+    "js-yaml": "^5.4.2",
+    "monaco-editor": "0.56.0",
+    "monaco-yaml": "^5.5.1",
+    "svelte": "^5.57.1"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.63.0",
+    "@sveltejs/vite-plugin-svelte": "^7.3.0",
+    "@tailwindcss/postcss": "^4.3.3",
+    "@types/node": "^25.5.2",
+    "@typescript/native-preview": "7.0.0-dev.20260501.1",
+    "autoprefixer": "^10.6.1",
+    "oxlint": "^1.73.0",
+    "postcss": "^8.5.28",
+    "prettier": "^3.8.1",
+    "tailwindcss": "^4.3.3",
+    "typescript": "^5.9.3",
+    "vite": "^8.3.0",
+    "vitest": "^4.1.11"
+  },
+  "pnpm": {
+    "overrides": {
+      "monaco-editor>dompurify": "^3.4.15",
+      "vite>esbuild": "-"
+    },
+    "patchedDependencies": {
+      "monaco-editor@0.56.0": "patches/monaco-editor@0.56.0.patch",
+      "monaco-worker-manager@2.0.1": "patches/monaco-worker-manager@2.0.1.patch"
+    }
+  }
 }

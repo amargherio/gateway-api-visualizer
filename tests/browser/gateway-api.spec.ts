@@ -130,8 +130,13 @@ function auditStatus(page: Page) {
   return page.getByTestId('gateway-api-status');
 }
 
-async function selectVersion(page: Page, version: '1.3' | '1.4' | '1.5' | '1.6'): Promise<void> {
+async function requestVersion(page: Page, version: '1.3' | '1.4' | '1.5' | '1.6'): Promise<void> {
   await page.locator('#gateway-api-version').selectOption(version);
+  await page.getByRole('button', { name: 'Apply release' }).click();
+}
+
+async function selectVersion(page: Page, version: '1.3' | '1.4' | '1.5' | '1.6'): Promise<void> {
+  await requestVersion(page, version);
   await expect(auditStatus(page)).toHaveAttribute('data-version', version);
   await expect(auditStatus(page)).toHaveAttribute('data-state', 'ready');
 }
@@ -383,10 +388,10 @@ test('preserves editor state and applies only the newest concurrent release sele
     };
   });
 
-  await page.locator('#gateway-api-version').selectOption('1.3');
+  await requestVersion(page, '1.3');
   await expect.poll(() => delayedRequests).toBe(1);
-  await page.locator('#gateway-api-version').selectOption('1.4');
-  await page.locator('#gateway-api-version').selectOption('1.6');
+  await requestVersion(page, '1.4');
+  await requestVersion(page, '1.6');
   releaseDelayed?.();
   await expect(auditStatus(page)).toHaveAttribute('data-version', '1.6');
   await expect(auditStatus(page)).toHaveAttribute('data-state', 'ready');
@@ -420,7 +425,7 @@ test('handles pre-initialization selection and rejects failed or malformed bundl
   });
   await page.goto('./', { waitUntil: 'domcontentloaded' });
   await expect(page.locator('#gateway-api-version')).toBeVisible();
-  await page.locator('#gateway-api-version').selectOption('1.4');
+  await requestVersion(page, '1.4');
   await expect(auditStatus(page)).toHaveAttribute('data-version', '1.4');
   await expect(auditStatus(page)).toHaveAttribute('data-state', 'error');
   await expect(auditStatus(page)).toContainText('Could not load CRDs for Gateway API 1.4.');
@@ -445,7 +450,7 @@ test('handles pre-initialization selection and rejects failed or malformed bundl
       body: JSON.stringify({ id: '1.3', tag: 'wrong', crds: [], schema: {} }),
     }),
   );
-  await page.locator('#gateway-api-version').selectOption('1.3');
+  await requestVersion(page, '1.3');
   await expect(auditStatus(page)).toHaveAttribute('data-state', 'error');
   await expect(auditStatus(page)).toContainText('Could not load CRDs for Gateway API 1.3.');
   await expect(page.locator('[aria-label="Resource summary"]')).toBeVisible();

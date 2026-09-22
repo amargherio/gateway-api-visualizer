@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onDestroy, onMount } from 'svelte';
   import type { CytoscapeOptions, ElementDefinition } from 'cytoscape';
   import Graph from './lib/Graph.svelte';
   import YamlEditor from './lib/YamlEditor.svelte';
@@ -16,6 +16,13 @@
     type GatewayApiBundle,
     type GatewayApiVersion,
   } from './lib/gatewayApi.js';
+  import {
+    registerGatewayApiTools,
+    type GraphViewInput,
+    type ManifestAuditProposal,
+    type ResourceQuery,
+    type WebMcpRegistration,
+  } from './lib/webmcp.js';
   import type {
     AnyRoute,
     CoverageGraph,
@@ -35,6 +42,17 @@
   type ParserIssue = { line: number; column: number; message: string };
   type KubernetesResource = Gateway | AnyRoute | Service | Deployment | StatefulSet | DaemonSet | GatewayClass | ReferenceGrant;
   type SelectedObject = (GraphNode | GraphEdge | RouteCoverageDetail) & { original?: KubernetesResource };
+  type AgentProposal = ManifestAuditProposal & {
+    replaceManifest: boolean;
+    state: 'pending' | 'applying';
+    settle: (result: unknown) => void;
+    abortSignal?: AbortSignal;
+    abortHandler?: () => void;
+    documentVersion?: number;
+    timeoutHandle?: ReturnType<typeof setTimeout>;
+  };
+
+  const AGENT_AUDIT_TIMEOUT_MS = 30_000;
 
   let graph: CoverageGraph | null = null;
   let elements: ElementDefinition[] = [];
@@ -50,6 +68,9 @@
   let yamlErrors: ParserIssue[] = [];
   let yamlEditor: YamlEditor;
   let selectionOpener: HTMLElement | null = null;
+  let webMcpStatus: 'registering' | 'available' | 'unsupported' | 'error' = 'registering';
+  let webMcpRegistration: WebMcpRegistration | null = null;
+  let pendingAgentProposal: AgentProposal | null = null;
 
   let gatewayApiVersion: GatewayApiVersion = defaultGatewayApiVersion;
   let gatewayApiBundle: GatewayApiBundle | null = null;
@@ -73,6 +94,28 @@
   onMount(() => {
     document.documentElement.setAttribute('data-theme', $theme);
     void selectGatewayApiVersion(gatewayApiVersion);
+
+    webMcpRegistration = registerGatewayApiTools({
+      getAuditReport,
+      queryResources,
+      proposeManifestAudit: (proposal, signal) => stageAgentProposal(proposal, true, signal),
+      setGraphView,
+      inspectResource,
+    });
+    webMcpStatus = webMcpRegistration.supported ? 'registering' : 'unsupported';
+    void webMcpRegistration.ready.then(
+      () => {
+        if (webMcpRegistration?.supported) webMcpStatus = 'available';
+      },
+      () => {
+        webMcpStatus = 'error';
+      },
+    );
+  });
+
+  onDestroy(() => {
+    webMcpRegistration?.dispose();
+    settleAgentProposal({ status: 'cancelled', reason: 'The page was closed.' });
   });
 
   async function selectGatewayApiVersion(version: GatewayApiVersion) {
@@ -94,13 +137,185 @@
     }
   }
 
-  function onVersionChange(event: Event) {
-    void selectGatewayApiVersion((event.currentTarget as HTMLSelectElement).value as GatewayApiVersion);
+
+  function onVersionToolSubmit(event: SubmitEvent) {
+    event.preventDefault();
+    const form = event.currentTarget as HTMLFormElement;
+    const version = new FormData(form).get('version') as GatewayApiVersion;
+    const response = selectGatewayApiVersion(version).then(() => ({ status: 'applied', version }));
+    event.respondWith?.(response);
+  }
+
+  function stageAgentProposal(
+    proposal: ManifestAuditProposal,
+    replaceManifest: boolean,
+    signal?: AbortSignal,
+  ): Promise<unknown> {
+    if (signal?.aborted) return Promise.reject(signal.reason);
+    settleAgentProposal({ status: 'superseded', reason: 'A newer proposal replaced this request.' });
+
+    return new Promise((resolve, reject) => {
+      const next: AgentProposal = {
+        ...proposal,
+        replaceManifest,
+        state: 'pending',
+        settle: resolve,
+        abortSignal: signal,
+      };
+      if (signal) {
+        next.abortHandler = () => {
+          if (pendingAgentProposal !== next) return;
+          pendingAgentProposal = null;
+          reject(signal.reason);
+        };
+        signal.addEventListener('abort', next.abortHandler, { once: true });
+      }
+      pendingAgentProposal = next;
+      requestAnimationFrame(() => document.getElementById('agent-proposal-heading')?.focus());
+    });
+  }
+
+  function settleAgentProposal(result: unknown) {
+    const proposal = pendingAgentProposal;
+    if (!proposal) return;
+    if (proposal.abortSignal && proposal.abortHandler) {
+      proposal.abortSignal.removeEventListener('abort', proposal.abortHandler);
+    }
+    if (proposal.timeoutHandle) clearTimeout(proposal.timeoutHandle);
+    pendingAgentProposal = null;
+    proposal.settle(result);
+  }
+
+  async function applyAgentProposal() {
+    const proposal = pendingAgentProposal;
+    if (!proposal || proposal.state === 'applying') return;
+    proposal.state = 'applying';
+    pendingAgentProposal = proposal;
+    await selectGatewayApiVersion(proposal.version);
+    if (pendingAgentProposal !== proposal) return;
+    if (gatewayApiLoadError) {
+      settleAgentProposal({ status: 'error', version: proposal.version, message: gatewayApiLoadError });
+      return;
+    }
+    if (proposal.replaceManifest) {
+      auditState = { version: proposal.version, status: 'loading', diagnostics: [] };
+      proposal.documentVersion = yamlEditor.setValue(proposal.manifest) ?? undefined;
+      proposal.timeoutHandle = setTimeout(() => {
+        if (pendingAgentProposal !== proposal) return;
+        settleAgentProposal({
+          status: 'timeout',
+          version: proposal.version,
+          manifestReplaced: true,
+          reason: 'The manifest changed, but CRD validation did not finish within 30 seconds.',
+        });
+      }, AGENT_AUDIT_TIMEOUT_MS);
+      pendingAgentProposal = proposal;
+      return;
+    }
+    settleAgentProposal({
+      status: 'applied',
+      version: proposal.version,
+      manifestReplaced: false,
+      audit: getAuditReport(),
+    });
+  }
+
+  function rejectAgentProposal() {
+    settleAgentProposal({ status: 'rejected', reason: 'The user rejected the proposed change.' });
+  }
+
+  function getAuditReport() {
+    return {
+      release: {
+        version: gatewayApiVersion,
+        tag: gatewayApiBundle?.tag ?? null,
+        status: auditState.status,
+      },
+      compatibility: {
+        diagnosticCount: auditState.diagnostics.length,
+        diagnostics: auditState.diagnostics.slice(0, 25),
+        truncated: auditState.diagnostics.length > 25,
+        message: auditState.message ?? null,
+      },
+      support: gatewayApiBundle
+        ? {
+            crds: gatewayApiBundle.crds.map((crd) => ({
+              kind: crd.kind,
+              channel: crd.channel,
+              servedVersions: crd.servedVersions,
+            })),
+            features: gatewayApiBundle.features.map((feature) => ({
+              name: feature.name,
+              channel: feature.channel,
+            })),
+          }
+        : null,
+      graph: graph
+        ? { summary: graph.summary, visibleNodes: visibleNodes.length, totalNodes: graph.nodes.length }
+        : null,
+      view: { search: searchTerm, kind: filterKind, parentRefs: filterCoverage, layout: layoutName },
+      privacy: 'Manifest analysis runs locally in this browser tab.',
+    };
+  }
+
+  function queryResources(input: ResourceQuery) {
+    if (!graph) return { resources: [], routes: [], message: 'No valid manifest is loaded.' };
+    const filtered = applyFilters(graph, input);
+    const nodeIds = new Set(filtered.nodes.map((node) => node.id));
+    const routes = graph.routeCoverage.filter((route) => nodeIds.has(route.id));
+    return {
+      resources: filtered.nodes.slice(0, 100),
+      routes: routes.slice(0, 100),
+      total: filtered.nodes.length,
+      truncated: filtered.nodes.length > 100 || routes.length > 100,
+    };
+  }
+
+  function setGraphView(input: GraphViewInput) {
+    if (input.search !== undefined) searchTerm = pendingSearch = input.search;
+    if (input.kind !== undefined) filterKind = input.kind;
+    if (input.parentRefs !== undefined) filterCoverage = input.parentRefs;
+    if (input.layout !== undefined) {
+      layoutName = input.layout;
+      updateLayout();
+    }
+    refreshFilters();
+    return {
+      status: 'applied',
+      view: { search: searchTerm, kind: filterKind, parentRefs: filterCoverage, layout: layoutName },
+      visibleNodes: graph ? applyFilters(graph).nodes.length : 0,
+    };
+  }
+
+  function inspectResource(id: string) {
+    if (!graph) throw new Error('No valid manifest is loaded.');
+    const resource = findObject(id, graph);
+    if (!resource) throw new Error(`Resource not found: ${id}`);
+    selectResource(id);
+    return { status: 'selected', id, resource };
   }
 
   function onAudit(event: CustomEvent<GatewayApiAuditState>) {
     if (event.detail.version !== gatewayApiVersion) return;
     auditState = event.detail;
+    const proposal = pendingAgentProposal;
+    if (
+      proposal?.state === 'applying'
+      && proposal.replaceManifest
+      && event.detail.status === 'ready'
+      && event.detail.documentVersion === proposal.documentVersion
+    ) {
+      settleAgentProposal({
+        status: 'applied',
+        version: proposal.version,
+        manifestReplaced: true,
+        compatibility: {
+          status: event.detail.status,
+          diagnosticCount: event.detail.diagnostics.length,
+        },
+        graphSummary: graph?.summary ?? null,
+      });
+    }
   }
 
   function createStatusCopy(state: GatewayApiAuditState, version: GatewayApiVersion, bundle: GatewayApiBundle | null) {
@@ -113,15 +328,18 @@
   }
   $: statusText = createStatusCopy(auditState, gatewayApiVersion, gatewayApiBundle);
 
-  function applyFilters(value: CoverageGraph) {
+  function applyFilters(value: CoverageGraph, requested: ResourceQuery = {}) {
+    const activeSearch = requested.search ?? searchTerm;
+    const activeKind = requested.kind ?? filterKind;
+    const activeCoverage = requested.parentRefs ?? filterCoverage;
     const allowedRouteIds = new Set(
       value.routeCoverage
         .filter((route: RouteCoverageDetail) => {
-          if (filterKind !== 'ALL' && route.kind !== filterKind) return false;
-          if (filterCoverage === 'COVERED' && !route.covered) return false;
-          if (filterCoverage === 'UNCOVERED' && route.covered) return false;
-          if (searchTerm) {
-            const search = searchTerm.toLowerCase();
+          if (activeKind !== 'ALL' && route.kind !== activeKind) return false;
+          if (activeCoverage === 'COVERED' && !route.covered) return false;
+          if (activeCoverage === 'UNCOVERED' && route.covered) return false;
+          if (activeSearch) {
+            const search = activeSearch.toLowerCase();
             if (!route.name.toLowerCase().includes(search) && !route.namespace.toLowerCase().includes(search)) return false;
           }
           return true;
@@ -130,15 +348,15 @@
     );
 
     const nodes = value.nodes.filter((node: GraphNode) => {
-      if (filterKind === 'ALL') {
+      if (activeKind === 'ALL') {
         if (node.type === 'route' && !allowedRouteIds.has(node.id)) return false;
-        if (!searchTerm) return true;
-        return node.label.toLowerCase().includes(searchTerm.toLowerCase()) || node.type !== 'route';
+        if (!activeSearch) return true;
+        return node.label.toLowerCase().includes(activeSearch.toLowerCase()) || node.type !== 'route';
       }
-      if (['HTTPRoute', 'TLSRoute', 'TCPRoute', 'GRPCRoute'].includes(filterKind)) {
+      if (['HTTPRoute', 'TLSRoute', 'TCPRoute', 'GRPCRoute'].includes(activeKind)) {
         return node.type === 'route' && allowedRouteIds.has(node.id);
       }
-      return node.type === filterKind && (!searchTerm || node.label.toLowerCase().includes(searchTerm.toLowerCase()));
+      return node.type === activeKind && (!activeSearch || node.label.toLowerCase().includes(activeSearch.toLowerCase()));
     });
     const nodeIds = new Set(nodes.map((node: GraphNode) => node.id));
     const edges = value.edges.filter((edge: GraphEdge) => nodeIds.has(edge.source) && nodeIds.has(edge.target));
@@ -301,7 +519,12 @@
       <h1>Gateway API Visualizer</h1>
       <span class="build-badge" title={`Application version ${__APP_VERSION__}, commit ${__GIT_HASH__}`}>{__APP_VERSION__} · {__GIT_HASH__}</span>
     </div>
-    <ThemeToggle />
+    <div class="header-actions">
+      <span class="agent-status" data-state={webMcpStatus} aria-live="polite">
+        LLM tools: {webMcpStatus === 'available' ? 'available' : webMcpStatus === 'registering' ? 'registering' : webMcpStatus === 'error' ? 'registration failed' : 'browser unsupported'}
+      </span>
+      <ThemeToggle />
+    </div>
   </header>
 
   <main id="main-content" class="workbench" tabindex="-1">
@@ -311,14 +534,22 @@
           <span class="eyebrow">Audit target</span>
           <h2 id="audit-target-title">Gateway API compatibility</h2>
         </div>
-        <div class="form-control version-control">
+        <form
+          class="form-control version-control"
+          toolname="select_gateway_api_version"
+          tooldescription="Prepares a Gateway API release selection for user review. The user must activate Apply release before the audit target changes."
+          on:submit={onVersionToolSubmit}
+        >
           <label for="gateway-api-version">Gateway API version</label>
-          <select id="gateway-api-version" class="select select-bordered" value={gatewayApiVersion} on:change={onVersionChange}>
-            {#each gatewayApiReleases as release}
-              <option value={release.id}>{release.id} ({release.tag})</option>
-            {/each}
-          </select>
-        </div>
+          <div class="version-inputs">
+            <select id="gateway-api-version" name="version" toolparamdescription="Gateway API release used for CRD compatibility analysis." class="select select-bordered" value={gatewayApiVersion}>
+              {#each gatewayApiReleases as release}
+                <option value={release.id}>{release.id} ({release.tag})</option>
+              {/each}
+            </select>
+            <button type="submit" class="btn btn-outline">Apply release</button>
+          </div>
+        </form>
         <span class="channel-badge">Standard + experimental</span>
         <div
           class:status-error={auditState.status === 'error'}
@@ -359,6 +590,34 @@
     <div class:with-details={sidebarOpen} class="workspace-grid">
       <section class="work-region manifest-region" aria-labelledby="manifest-title">
         <header class="region-header"><h2 id="manifest-title">Manifest</h2></header>
+        {#if pendingAgentProposal}
+          <section class="agent-proposal" aria-labelledby="agent-proposal-heading">
+            <div class="proposal-copy">
+              <span class="eyebrow">LLM change request</span>
+              <h3 id="agent-proposal-heading" tabindex="-1">
+                {pendingAgentProposal.replaceManifest ? 'Replace manifest and audit' : 'Change audit release'}
+              </h3>
+              <p>
+                Gateway API {pendingAgentProposal.version}
+                {#if pendingAgentProposal.replaceManifest}
+                  · {pendingAgentProposal.manifest.split('\n').length} lines · {new Blob([pendingAgentProposal.manifest]).size.toLocaleString()} bytes
+                {/if}
+              </p>
+              {#if pendingAgentProposal.replaceManifest}
+                <details>
+                  <summary>Review proposed manifest</summary>
+                  <pre>{pendingAgentProposal.manifest}</pre>
+                </details>
+              {/if}
+            </div>
+            <div class="proposal-actions">
+              <button type="button" class="btn btn-outline" disabled={pendingAgentProposal.state === 'applying'} on:click={rejectAgentProposal}>Reject</button>
+              <button type="button" class="btn btn-primary" disabled={pendingAgentProposal.state === 'applying'} on:click={applyAgentProposal}>
+                {pendingAgentProposal.state === 'applying' ? 'Applying…' : 'Apply'}
+              </button>
+            </div>
+          </section>
+        {/if}
         <div class="region-content">
           <YamlEditor
             bind:this={yamlEditor}
@@ -433,6 +692,18 @@
   .app-shell { color: var(--color-base-content); background: var(--color-base-100); }
   .app-header { min-height: 58px; padding: 0 24px; display: flex; align-items: center; justify-content: space-between; gap: 16px; border-bottom: 1px solid var(--color-base-300); background: var(--color-base-50); }
   .brand-lockup { min-width: 0; display: flex; align-items: baseline; gap: 12px; }
+  .header-actions { display: flex; align-items: center; gap: 12px; }
+  .agent-status { color: var(--color-secondary); font-size: 0.75rem; }
+  .agent-status[data-state='available'] { color: var(--color-success); }
+  .agent-status[data-state='error'] { color: var(--color-error); }
+  .agent-proposal { padding: 12px 14px; border-bottom: 1px solid var(--color-base-300); background: color-mix(in srgb, var(--color-info) 7%, var(--color-base-50)); display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+  .proposal-copy { min-width: 0; }
+  .proposal-copy h3 { margin: 2px 0 0; font-size: 0.875rem; font-weight: 600; }
+  .proposal-copy p { margin: 2px 0 0; color: var(--color-secondary); font-size: 0.75rem; }
+  .proposal-copy details { margin-top: 8px; }
+  .proposal-copy summary { width: fit-content; cursor: pointer; color: var(--color-primary); font-size: 0.75rem; font-weight: 600; }
+  .proposal-copy pre { max-width: min(72vw, 900px); max-height: 240px; margin: 8px 0 0; padding: 10px; overflow: auto; border: 1px solid var(--color-base-300); border-radius: 4px; background: var(--color-base-50); color: var(--color-base-content); font: 0.75rem/1.45 ui-monospace, SFMono-Regular, Consolas, monospace; white-space: pre; }
+  .proposal-actions { flex: 0 0 auto; display: flex; gap: 8px; }
   .brand-lockup h1 { margin: 0; font-size: 1.125rem; font-weight: 600; letter-spacing: -0.01em; }
   .build-badge { color: var(--color-secondary); font: 0.75rem/1.2 ui-monospace, SFMono-Regular, Consolas, monospace; }
   .workbench { width: min(100%, 1800px); margin: 0 auto; padding: 20px 24px 32px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; }
@@ -442,6 +713,7 @@
   .eyebrow, .region-note { color: var(--color-secondary); font-size: 0.75rem; }
   .audit-heading h2, .region-header h2 { margin: 2px 0 0; font-size: 1rem; font-weight: 600; }
   .version-control { display: grid; grid-template-columns: auto auto; align-items: center; gap: 8px; }
+  .version-inputs { display: flex; align-items: center; gap: 8px; }
   .version-control label, .topology-controls label { font-size: 0.75rem; color: var(--color-secondary); }
   .channel-badge { padding: 5px 8px; border: 1px solid var(--color-base-300); border-radius: 999px; color: var(--color-secondary); font-size: 0.75rem; }
   .audit-status { min-height: 36px; display: flex; align-items: center; gap: 8px; color: var(--color-success); font-size: 0.8125rem; }

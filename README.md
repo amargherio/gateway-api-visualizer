@@ -10,8 +10,9 @@ Visualize relationships between Kubernetes Gateway API `Gateway` and route resou
 - In-place version switching that preserves editor text, cursor, scroll position, and undo history
 - Relationship graph for `Gateway`, `HTTPRoute`, `TLSRoute`, `TCPRoute`, and `GRPCRoute`
 - Route parent-reference summary, filtering, sorting, pagination, and keyboard inspection
-- Same-origin, checked-in audit bundles: manifests never leave the browser
+- Same-origin, checked-in audit bundles; the application itself does not upload raw manifests
 - Responsive light and dark engineering workbench
+- Progressive WebMCP integration with user-approved manifest changes and an agent-readable `llms.txt`
 
 CRD diagnostics check release compatibility and structural fields. They do not execute Kubernetes CEL admission rules or prove support in a specific Gateway controller. The relationship graph is a local preview; a parent reference is not proof that a controller accepted an attachment.
 
@@ -81,6 +82,20 @@ CoverageGraph {
   }[]
 }
 ```
+
+## LLM and WebMCP access
+
+Browsers and agent hosts that implement WebMCP receive five imperative tools for audit reporting, resource queries, reviewable manifest proposals, graph controls, and resource inspection. The Gateway API release selector also exposes a declarative tool. Manifest replacement is never immediate: the page shows the exact proposed YAML and target release until the user selects **Apply** or **Reject**. Declarative release changes require the visible **Apply release** button.
+
+The integration is progressive. Browsers without `document.modelContext` keep the complete human workbench. Analysis executes in the tab and the application makes no manifest-upload request. Invoked WebMCP tools do send inputs and outputs to the selected agent host; query and inspection results can include manifest-derived values or a selected original resource. Those outputs are marked untrusted, and tools are not exposed to cross-origin frames.
+
+The deployed agent reference is generated at `public/llms.txt`:
+
+```bash
+pnpm generate:llms
+```
+
+`pnpm build` runs this generator automatically. Update `scripts/generate-llms-txt.mjs` whenever tool contracts or supported releases change.
 
 ## Testing
 

@@ -89,6 +89,7 @@
   let yamlServiceConfigured = false;
   let validatorInitializationInProgress = false;
   let validatorInitializationFailed = false;
+  let updatingParserMarkers = false;
 
   let activeSchemaVersion: GatewayApiVersion | null = null;
   let pendingSchemaRequest: SchemaRequest | null = null;
@@ -288,7 +289,11 @@
     });
 
     markerSubscription = monaco.editor.onDidChangeMarkers(resources => {
-      if (schemaUpdateInFlight || !resources.some(resource => resource.toString() === model.uri.toString())) {
+      if (
+        updatingParserMarkers
+        || schemaUpdateInFlight
+        || !resources.some(resource => resource.toString() === model.uri.toString())
+      ) {
         return;
       }
       publishCurrentWorkerDiagnostics();
@@ -440,6 +445,7 @@
       version: activeSchemaVersion,
       status: 'ready',
       diagnostics: crdDiagnostics,
+      documentVersion: model.getVersionId(),
     });
   }
 
@@ -563,18 +569,23 @@
     if (!editor || !monaco) return;
     const model = editor.getModel();
     if (!model) return;
-    monaco.editor.setModelMarkers(
-      model,
-      'yaml-validation',
-      validationErrors.map(error => ({
-        severity: monaco!.MarkerSeverity.Error,
-        startLineNumber: error.line,
-        startColumn: error.column,
-        endLineNumber: error.line,
-        endColumn: Number.MAX_SAFE_INTEGER,
-        message: error.message,
-      })),
-    );
+    updatingParserMarkers = true;
+    try {
+      monaco.editor.setModelMarkers(
+        model,
+        'yaml-validation',
+        validationErrors.map(error => ({
+          severity: monaco!.MarkerSeverity.Error,
+          startLineNumber: error.line,
+          startColumn: error.column,
+          endLineNumber: error.line,
+          endColumn: Number.MAX_SAFE_INTEGER,
+          message: error.message,
+        })),
+      );
+    } finally {
+      updatingParserMarkers = false;
+    }
   }
 
   $: sampleInsertionReady = Boolean(
@@ -610,8 +621,14 @@
     return editor?.getValue() || '';
   }
 
-  export function setValue(value: string) {
-    editor?.setValue(value);
+  export function setValue(value: string): number | null {
+    if (!editor) return null;
+    editor.setValue(value);
+    if (debounceHandle) clearTimeout(debounceHandle);
+    debounceHandle = null;
+    detectLanguageForBadge();
+    validateContent();
+    return editor.getModel()?.getVersionId() ?? null;
   }
 
   function gotoLine(line: number) {

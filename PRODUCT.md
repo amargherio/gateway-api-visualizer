@@ -6,7 +6,7 @@ product
 
 ## Users
 
-Platform engineers reviewing local Kubernetes Gateway API manifests. They compare a proposed manifest against specific Gateway API releases, inspect schema compatibility, and understand resource relationships without sending manifest content to a service.
+Platform engineers reviewing local Kubernetes Gateway API manifests. They compare a proposed manifest against specific Gateway API releases, inspect schema compatibility, and understand resource relationships without the application uploading raw manifest content. Optional WebMCP workflows disclose tool inputs and outputs to the invoking agent host.
 
 ## Product Purpose
 
