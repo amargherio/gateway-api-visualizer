@@ -53,6 +53,7 @@
   };
 
   const AGENT_AUDIT_TIMEOUT_MS = 30_000;
+  const llmsTxtUrl = `${import.meta.env.BASE_URL}llms.txt`;
 
   let graph: CoverageGraph | null = null;
   let elements: ElementDefinition[] = [];
@@ -684,6 +685,10 @@
       <RouteCoverageTable rows={graph.routeCoverage} on:routeSelect={(event) => selectResource(event.detail.id, event.detail.opener)} />
     {/if}
   </main>
+  <footer class="app-footer">
+    <span>Agent reference</span>
+    <a href={llmsTxtUrl} type="text/plain">llms.txt</a>
+  </footer>
 </div>
 
 <style>
@@ -706,6 +711,8 @@
   .proposal-actions { flex: 0 0 auto; display: flex; gap: 8px; }
   .brand-lockup h1 { margin: 0; font-size: 1.125rem; font-weight: 600; letter-spacing: -0.01em; }
   .build-badge { color: var(--color-secondary); font: 0.75rem/1.2 ui-monospace, SFMono-Regular, Consolas, monospace; }
+  .app-footer { min-height: 44px; padding: 8px 24px; border-top: 1px solid var(--color-base-300); display: flex; align-items: center; justify-content: flex-end; gap: 8px; color: var(--color-secondary); font-size: 0.75rem; }
+  .app-footer a { color: var(--color-primary); font-weight: 600; text-underline-offset: 2px; }
   .workbench { width: min(100%, 1800px); margin: 0 auto; padding: 20px 24px 32px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; }
   .audit-panel, .resource-summary, .work-region, .details-region { border: 1px solid var(--color-base-300); border-radius: 6px; background: var(--color-base-50); }
   .audit-toolbar { min-height: 72px; padding: 12px 16px; display: flex; flex-wrap: wrap; align-items: center; gap: 12px 16px; }

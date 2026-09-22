@@ -89,7 +89,7 @@ Browsers and agent hosts that implement WebMCP receive five imperative tools for
 
 The integration is progressive. Browsers without `document.modelContext` keep the complete human workbench. Analysis executes in the tab and the application makes no manifest-upload request. Invoked WebMCP tools do send inputs and outputs to the selected agent host; query and inspection results can include manifest-derived values or a selected original resource. Those outputs are marked untrusted, and tools are not exposed to cross-origin frames.
 
-The deployed agent reference is generated at `public/llms.txt`:
+The deployed agent reference is [https://amargherio.github.io/gateway-api-visualizer/llms.txt](https://amargherio.github.io/gateway-api-visualizer/llms.txt), generated from `public/llms.txt`. Because this is a GitHub project Pages deployment, the file cannot occupy the origin-root `/llms.txt`; the page advertises its base-aware location through `<link rel="llms-txt">` and a visible footer link. Origin-root discovery requires a custom domain or the `amargherio.github.io` root repository.
 
 ```bash
 pnpm generate:llms

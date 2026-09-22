@@ -171,7 +171,18 @@ test('keeps the normal workbench available without native WebMCP', async ({ page
   await expect(page.getByRole('heading', { name: 'Manifest' })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Relationships', exact: true })).toBeVisible();
 
-  const llmsResponse = await page.request.get(new URL('llms.txt', page.url()).href);
+  const discoveryLink = page.locator('link[rel="llms-txt"]');
+  await expect(discoveryLink).toHaveAttribute('type', 'text/plain');
+  const advertisedUrl = await discoveryLink.getAttribute('href');
+  if (!advertisedUrl) throw new Error('The llms.txt discovery link has no href.');
+  const resolvedUrl = new URL(advertisedUrl, page.url());
+  expect(resolvedUrl.pathname).toBe(new URL('llms.txt', page.url()).pathname);
+  await expect(page.getByRole('link', { name: 'llms.txt' })).toHaveAttribute(
+    'href',
+    advertisedUrl,
+  );
+
+  const llmsResponse = await page.request.get(resolvedUrl.href);
   expect(llmsResponse.ok()).toBe(true);
   await expect(llmsResponse.text()).resolves.toContain('### propose_manifest_audit');
 });
