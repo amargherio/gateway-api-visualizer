@@ -7,22 +7,27 @@
   "packageManager": "pnpm@9.0.0",
   "scripts": {
     "dev": "vite",
+    "api": "tsx server/index.ts",
     "generate:llms": "node scripts/generate-llms-txt.mjs",
     "build": "pnpm generate:llms && vite build",
     "deploy": "pnpm build",
     "preview": "vite preview",
-    "lint": "oxlint src/ --tsconfig tsconfig.json",
+    "lint": "oxlint src/ server/ --tsconfig tsconfig.json",
     "typecheck": "tsgo --project tsconfig.json --noEmit",
     "format": "prettier --write .",
     "test": "vitest --run",
     "test:browser": "playwright test"
   },
   "dependencies": {
+    "ajv": "^8.20.0",
+    "ajv-formats": "^3.0.1",
     "cytoscape": "^3.34.3",
+    "fastify": "^5.12.5",
     "js-yaml": "^5.4.2",
     "monaco-editor": "0.56.0",
     "monaco-yaml": "^5.5.1",
-    "svelte": "^5.57.1"
+    "svelte": "^5.57.1",
+    "tsx": "^4.23.15"
   },
   "devDependencies": {
     "@playwright/test": "1.63.0",

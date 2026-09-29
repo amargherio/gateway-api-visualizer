@@ -176,6 +176,18 @@ If you fork the repo:
 2. Ensure the repository name matches the `REPO` constant in `vite.config.ts` (used to set the base path). If you change it, update that constant accordingly.
 3. Push to `main` or run the workflow manually.
 
+## JSON analysis API
+
+Run the separate Node service from the repository root with Node 20.19+ and `pnpm api` (default port 3001, override with `PORT`). Keep `public/gateway-api/` alongside the service: it reads these pinned release bundles from disk. The service exposes `POST /api/analyze` and `GET /api/schema` (OpenAPI 3.1, including request, response, and error schemas and examples). For local development, Vite proxies `/api` to the separately started service on port 3001.
+
+```bash
+curl -X POST http://127.0.0.1:3001/api/analyze \
+  -H 'Content-Type: application/json' \
+  --data '{"gatewayApiVersion":"1.6","resources":[{"apiVersion":"gateway.networking.k8s.io/v1","kind":"Gateway","metadata":{"name":"example"},"spec":{}}]}'
+```
+
+The JSON result includes release metadata, structural and version-specific CRD diagnostics, supported CRDs/features, and the relationship graph. The service accepts at most 1 MiB of JSON per request and does not log or store submitted manifests. The browser workbench continues analyzing manifests locally without uploading them. GitHub Pages hosts only the static browser app; deploy the API separately on a Node-capable host and use that service's origin for API clients. Pages URLs do not serve these endpoints.
+
 ## License
 
 [MIT](LICENSE.md)

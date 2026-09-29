@@ -4,16 +4,8 @@
   import 'monaco-editor/features/codicon/register.js';
   import * as yaml from 'js-yaml';
   import type { MonacoYaml } from 'monaco-yaml';
-  import type {
-    Gateway,
-    AnyRoute,
-    Service,
-    Deployment,
-    StatefulSet,
-    DaemonSet,
-    GatewayClass,
-    ReferenceGrant,
-  } from './shared.js';
+  import type { CategorizedResources } from './manifestAnalysis.js';
+  import { classifyResources, isGatewayApiObject } from './manifestAnalysis.js';
   import type {
     GatewayApiAuditState,
     GatewayApiBundle,
@@ -27,17 +19,7 @@
   // @ts-ignore - raw import query
   import multiSample from '../../data/sample-multi-gateways.yaml?raw';
 
-  type ParsedObjects = {
-    gateways: Gateway[];
-    routes: AnyRoute[];
-    services: Service[];
-    deployments: Deployment[];
-    statefulSets: StatefulSet[];
-    daemonSets: DaemonSet[];
-    gatewayClasses: GatewayClass[];
-    referenceGrants: ReferenceGrant[];
-  };
-
+  type ParsedObjects = CategorizedResources;
   type ParserDiagnostic = { line: number; column: number; message: string };
   type SchemaRequest = {
     generation: number;
@@ -58,10 +40,6 @@
     gatewayClasses: [],
     referenceGrants: [],
   });
-  const GATEWAY_API_GROUPS = new Set([
-    'gateway.networking.k8s.io',
-    'gateway.networking.x-k8s.io',
-  ]);
   const DEBOUNCE_MS = 350;
   const FOCUS_COOLDOWN_MS = 250;
 
@@ -483,8 +461,7 @@
         }
       }
 
-      const objects = allObjects as Record<string, unknown>[];
-      const secretResult = containsPotentialSecrets(content, objects);
+      const secretResult = containsPotentialSecrets(content, allObjects);
       if (secretResult) {
         if (!secretDetected) {
           secretDetected = secretResult;
@@ -502,18 +479,13 @@
       }
       if (secretDetected) secretDetected = null;
 
-      for (const object of objects) {
-        try {
-          validateKubernetesObject(object);
-          categorizeObject(object);
-        } catch (validationError) {
-          validationErrors.push({
-            line: 1,
-            column: 1,
-            message: `Validation Error: ${validationError instanceof Error ? validationError.message : String(validationError)}`,
-          });
-        }
-      }
+      const classification = classifyResources(allObjects);
+      parsedObjects = classification.categorized;
+      validationErrors.push(...classification.diagnostics.map(diagnostic => ({
+        line: 1,
+        column: 1,
+        message: `Validation Error: ${diagnostic.message}`,
+      })));
 
       updateParserMarkers();
       if (validationErrors.length === 0) dispatch('parse', parsedObjects);
@@ -529,41 +501,6 @@
     }
   }
 
-  function validateKubernetesObject(object: Record<string, unknown>) {
-    if (!object.apiVersion) throw new Error('Missing required field: apiVersion');
-    if (!object.kind) throw new Error('Missing required field: kind');
-    const metadata = object.metadata as Record<string, unknown> | undefined;
-    if (!metadata?.name) throw new Error('Missing required field: metadata.name');
-    if (isGatewayApiObject(object) && ['Gateway', 'HTTPRoute', 'TLSRoute', 'TCPRoute', 'GRPCRoute'].includes(String(object.kind)) && !object.spec) {
-      throw new Error(`${String(object.kind)} missing required field: spec`);
-    }
-  }
-
-  function categorizeObject(object: Record<string, unknown>) {
-    if (isGatewayApiObject(object)) {
-      switch (object.kind) {
-        case 'Gateway': parsedObjects.gateways.push(object as Gateway); break;
-        case 'HTTPRoute':
-        case 'TLSRoute':
-        case 'TCPRoute':
-        case 'GRPCRoute': parsedObjects.routes.push(object as AnyRoute); break;
-        case 'GatewayClass': parsedObjects.gatewayClasses.push(object as GatewayClass); break;
-        case 'ReferenceGrant': parsedObjects.referenceGrants.push(object as ReferenceGrant); break;
-      }
-      return;
-    }
-    switch (object.kind) {
-      case 'Service': parsedObjects.services.push(object as Service); break;
-      case 'Deployment': parsedObjects.deployments.push(object as Deployment); break;
-      case 'StatefulSet': parsedObjects.statefulSets.push(object as StatefulSet); break;
-      case 'DaemonSet': parsedObjects.daemonSets.push(object as DaemonSet); break;
-    }
-  }
-
-  function isGatewayApiObject(object: Record<string, unknown>) {
-    const apiVersion = typeof object.apiVersion === 'string' ? object.apiVersion : '';
-    return GATEWAY_API_GROUPS.has(apiVersion.split('/')[0]);
-  }
 
   function updateParserMarkers() {
     if (!editor || !monaco) return;
