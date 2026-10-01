@@ -78,6 +78,8 @@
   let parsedObjects: ParsedObjects = EMPTY_PARSED_OBJECTS();
   let selectedSample: 'basic' | 'multi' = 'basic';
   let secretDetected: { reasons: string[] } | null = null;
+  let pendingSecretContent: string | null = null;
+  let secretDetectionEnabled = true;
   let lastFocusTime = 0;
   let errorsExpanded = false;
   let crdDiagnosticsExpanded = false;
@@ -461,8 +463,11 @@
         }
       }
 
-      const secretResult = containsPotentialSecrets(content, allObjects);
+      const secretResult = secretDetectionEnabled
+        ? containsPotentialSecrets(content, allObjects)
+        : null;
       if (secretResult) {
+        pendingSecretContent = content;
         if (!secretDetected) {
           secretDetected = secretResult;
           editor.setValue('');
@@ -478,6 +483,7 @@
         return;
       }
       if (secretDetected) secretDetected = null;
+      pendingSecretContent = null;
 
       const classification = classifyResources(allObjects);
       parsedObjects = classification.categorized;
@@ -549,8 +555,28 @@
       })
       .join('\n---\n');
     secretDetected = null;
+    pendingSecretContent = null;
     editor.setValue(transformed);
     detectLanguageForBadge();
+    validateContent();
+  }
+
+  function acknowledgeSecretDetection() {
+    if (!editor || pendingSecretContent === null) return;
+    const content = pendingSecretContent;
+    secretDetectionEnabled = false;
+    pendingSecretContent = null;
+    secretDetected = null;
+    editor.setValue(content);
+    if (debounceHandle) clearTimeout(debounceHandle);
+    debounceHandle = null;
+    detectLanguageForBadge();
+    validateContent();
+    editor.focus();
+  }
+
+  function enableSecretDetection() {
+    secretDetectionEnabled = true;
     validateContent();
   }
 
@@ -631,6 +657,24 @@
           {/each}
         </ul>
       </div>
+      <div>
+        <button type="button" class="btn btn-sm btn-outline" on:click={acknowledgeSecretDetection}>
+          Acknowledge false positives and disable detection
+        </button>
+        <p class="text-xs mt-1">
+          This restores the rejected input and disables detection only until this page reloads.
+        </p>
+      </div>
+    </div>
+  {:else if !secretDetectionEnabled}
+    <div role="status" class="editor-notice px-4 py-3 flex items-center justify-between gap-3">
+      <div>
+        <div class="font-semibold">Potential-secret detection is disabled</div>
+        <p class="text-sm">Input is not being checked for credentials. Detection turns back on when this page reloads.</p>
+      </div>
+      <button type="button" class="btn btn-sm btn-outline" on:click={enableSecretDetection}>
+        Re-enable and scan current input
+      </button>
     </div>
   {/if}
 

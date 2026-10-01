@@ -16,6 +16,8 @@ Visualize relationships between Kubernetes Gateway API `Gateway` and route resou
 
 CRD diagnostics check release compatibility and structural fields. They do not execute Kubernetes CEL admission rules or prove support in a specific Gateway controller. The relationship graph is a local preview; a parent reference is not proof that a controller accepted an attachment.
 
+Potential-secret detection clears matching input before analysis. If a match is a confirmed false positive, the warning can restore the rejected input and disable detection for the current page. A persistent warning remains visible while detection is disabled, re-enabling immediately rescans the editor, and reloading the page always turns detection back on.
+
 ## Project Layout (flattened)
 
 The project has been fully flattened. All source now resides under `src/` at the repository root. Former workspace packages were consolidated; shared types + coverage graph builder live in `src/lib/shared.ts`.

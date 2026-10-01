@@ -39,7 +39,7 @@ function clone(value) {
  * by monaco-yaml. This function is intentionally pure: importing this module
  * never accesses the network or writes generated artifacts.
  */
-export function normalizeCrdSchema(schema) {
+export function normalizeCrdSchema(schema, closeObject = true) {
   if (typeof schema === 'boolean') return schema;
   if (!plainObject(schema)) throw new Error('CRD schema must be an object or boolean.');
 
@@ -63,11 +63,11 @@ export function normalizeCrdSchema(schema) {
     ) {
       normalized.additionalProperties = normalizeCrdSchema(value);
     } else if (['allOf', 'anyOf', 'oneOf'].includes(key) && Array.isArray(value)) {
-      normalized[key] = value.map(normalizeCrdSchema);
+      normalized[key] = value.map((branch) => normalizeCrdSchema(branch, false));
     } else if (key === 'not' && (plainObject(value) || typeof value === 'boolean')) {
-      normalized.not = normalizeCrdSchema(value);
+      normalized.not = normalizeCrdSchema(value, false);
     } else if (key === 'if' || key === 'then' || key === 'else') {
-      normalized[key] = normalizeCrdSchema(value);
+      normalized[key] = normalizeCrdSchema(value, false);
     } else {
       normalized[key] = clone(value);
     }
@@ -96,6 +96,7 @@ export function normalizeCrdSchema(schema) {
   }
 
   if (
+    closeObject &&
     plainObject(normalized.properties) &&
     normalized.additionalProperties === undefined &&
     schema['x-kubernetes-preserve-unknown-fields'] !== true

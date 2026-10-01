@@ -274,6 +274,18 @@ test('audits Gateway API depth without constraining non-Gateway resources or JSO
   await expect.poll(async () => yamlMarkers(await readMarkers(page)).length).toBeGreaterThan(0);
 });
 
+test('accepts non-IP Gateway address types allowed by the CRD', async ({ page }) => {
+  await waitForEditor(page);
+  await setEditorValue(
+    page,
+    gateway.replace(
+      'gatewayClassName: example',
+      'gatewayClassName: example\n  addresses:\n    - type: NamedAddress\n      value: edge-address',
+    ),
+  );
+  await waitForSchemaMarkers(page, 0);
+});
+
 test('normalizes Kubernetes extensions for the real YAML worker', async ({ page }) => {
   await waitForEditor(page);
   const normalized = normalizeCrdSchema({
@@ -283,6 +295,17 @@ test('normalizes Kubernetes extensions for the real YAML worker', async ({ page 
       port: { 'x-kubernetes-int-or-string': true },
       labels: { type: 'object', additionalProperties: { type: 'string' } },
       extension: { type: 'object', 'x-kubernetes-preserve-unknown-fields': true },
+      address: {
+        type: 'object',
+        properties: {
+          type: { type: 'string' },
+          value: { type: 'string' },
+        },
+        oneOf: [
+          { properties: { type: { enum: ['IPAddress'] } } },
+          { properties: { type: { not: { enum: ['IPAddress'] } } } },
+        ],
+      },
     },
   });
 
@@ -325,7 +348,7 @@ test('normalizes Kubernetes extensions for the real YAML worker', async ({ page 
           `maybe: null\nport: 8080\nlabels:\n  team: platform\nextension:\n  arbitrary:\n    nested: true\n`,
         ),
         stringPort: await validate(
-          `maybe: text\nport: named\nlabels:\n  team: platform\nextension:\n  arbitrary: true\n`,
+          `maybe: text\nport: named\nlabels:\n  team: platform\nextension:\n  arbitrary: true\naddress:\n  type: NamedAddress\n  value: edge-address\n`,
         ),
         booleanPort: await validate(
           `maybe: null\nport: true\nlabels:\n  team: platform\nextension: {}\n`,
@@ -489,6 +512,60 @@ test('keeps release fetches same-origin and never transmits manifest input', asy
       ),
     ).toBe(true);
   }
+});
+
+test('allows acknowledged false positives until the page reloads', async ({ page }) => {
+  const falsePositive = gateway.replace(
+    'example.com/owner: platform',
+    'example.com/auth-mode: managed-identity',
+  );
+
+  await waitForEditor(page);
+  await setEditorValue(page, falsePositive);
+
+  const detectionAlert = page.locator('.editor-notice').filter({
+    hasText: 'Potential credentials detected; input cleared.',
+  });
+  await expect(detectionAlert).toContainText('Suspicious key name: example.com/auth-mode');
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const monaco = (
+          globalThis as typeof globalThis & { monaco: typeof import('monaco-editor') }
+        ).monaco;
+        return monaco.editor.getModels()[0]?.getValue();
+      }),
+    )
+    .toBe('');
+
+  await page
+    .getByRole('button', { name: 'Acknowledge false positives and disable detection' })
+    .click();
+  await expect(
+    page.getByText('Potential-secret detection is disabled', { exact: true }),
+  ).toBeVisible();
+  await expect(resourceSummaryValue(page, 'Gateways')).toHaveText('1');
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const monaco = (
+          globalThis as typeof globalThis & { monaco: typeof import('monaco-editor') }
+        ).monaco;
+        return monaco.editor.getModels()[0]?.getValue();
+      }),
+    )
+    .toBe(falsePositive);
+
+  await page.getByRole('button', { name: 'Re-enable and scan current input' }).click();
+  await expect(detectionAlert).toContainText('Potential credentials detected; input cleared.');
+
+  await page.reload();
+  await expect(page.locator('.monaco-editor')).toBeVisible();
+  await expect(
+    page.getByText('Potential-secret detection is disabled', { exact: true }),
+  ).toHaveCount(0);
+  await setEditorValue(page, falsePositive);
+  await expect(detectionAlert).toContainText('Potential credentials detected; input cleared.');
 });
 
 test('inserts each version-aware sample without rewriting it after a release change', async ({
