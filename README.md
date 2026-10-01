@@ -99,10 +99,28 @@ pnpm generate:llms
 
 ## Testing
 
+Before running browser tests on a fresh machine, install Chromium and its system
+dependencies with `pnpm exec playwright install --with-deps chromium`.
+
 ```bash
+pnpm run typecheck
 pnpm test
 pnpm run test:browser
 ```
+
+Typechecking uses TypeScript 7's native `tsc` executable with the existing project
+configuration and `--noEmit`.
+
+Pull requests run `.github/workflows/ci.yml` using Node 24 and the pnpm version
+declared in `package.json`, with frozen-lockfile installs. Independent jobs run
+lint, typecheck, and unit/API tests, plus Chromium tests against both Vite
+development and the production preview. The browser harness also builds the
+production application; no cluster, external API service, or secrets are needed.
+
+The workflow rejects focused browser tests and retains the `playwright-report`
+artifact for seven days, including the HTML report and failure traces when
+available. New commits cancel older CI runs for the same pull request. CI can
+also be run manually from Actions; GitHub Pages deployment remains separate.
 
 ### Keyboard and accessibility
 
