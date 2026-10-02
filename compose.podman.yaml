@@ -1,0 +1,5 @@
+services:
+  web:
+    network_mode: pasta
+  api:
+    network_mode: pasta

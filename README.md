@@ -63,6 +63,67 @@ node scripts/generate-gateway-api.mjs
 
 Generation verifies published asset digests where available and writes deterministic files under `public/gateway-api/`. Normal builds and application runtime do not contact GitHub.
 
+## Container runtime
+
+Run the production-built browser app without installing Node or pnpm on the host:
+
+```bash
+docker compose up --build
+```
+
+Open **http://127.0.0.1:8080/gateway-api-visualizer/**. The origin root redirects
+there. The `web` image serves the built app, Monaco workers, pinned release
+bundles, `llms.txt`, and the dedicated HTTP 404 page through unprivileged nginx;
+it does not run a development server. Rebuild after changing application code.
+
+The separate JSON API is optional. Enable its Compose profile to run both services:
+
+```bash
+docker compose --profile api up --build
+curl http://127.0.0.1:3001/api/schema
+curl http://127.0.0.1:3001/api/analyze \
+  -H 'Content-Type: application/json' \
+  --data '{"gatewayApiVersion":"1.6","resources":[]}'
+```
+
+The API image runs compiled JavaScript on Node 24 with production dependencies
+and the checked-in bundles. Both services run as non-root users and publish
+ports only on `127.0.0.1`. The browser continues analyzing manifests locally;
+API clients use the separate port 3001, not the web origin. No manifest mounts,
+cluster, credentials, or upstream bundle regeneration are required.
+
+For occupied host ports, use `WEB_PORT=8081 API_PORT=3002 docker compose --profile
+api up --build`; the ports inside the containers remain 8080 and 3001. Stop and
+remove the containers with `docker compose --profile api down`.
+
+On Linux with rootless Podman, install a Compose provider and `pasta`, then use
+the supplied networking override instead of creating a bridge:
+
+```bash
+podman compose -f compose.yaml -f compose.podman.yaml --profile api up --build
+podman compose -f compose.yaml -f compose.podman.yaml --profile api down
+```
+
+Without Compose, the Dockerfile's default target is the web runtime:
+
+```bash
+docker build -t gateway-api-visualizer .
+docker run --rm -p 127.0.0.1:8080:8080 gateway-api-visualizer
+```
+
+Build and run the API image independently with an init process for shutdown
+signal forwarding (Compose enables this automatically):
+
+```bash
+docker build --target api -t gateway-api-visualizer-api .
+docker run --init --rm -p 127.0.0.1:3001:3001 gateway-api-visualizer-api
+```
+
+Image builds use the repository's pinned pnpm version, frozen lockfile, and
+committed dependency patches. Build downloads require network access; normal application execution
+uses only bundled release data. `.dockerignore` excludes local dependency/build
+output, VCS metadata, test artifacts, and environment/registry credential files.
+
 ## Sample YAML
 
 Examples you can copy into the editor:

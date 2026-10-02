@@ -1,0 +1,16 @@
+.git
+.jj
+.github
+.impeccable
+node_modules
+dist
+api-dist
+playwright-report
+test-results
+coverage
+tests
+**/*.test.ts
+*.log
+.env
+.env.*
+.npmrc

@@ -1,0 +1,18 @@
+services:
+  web:
+    image: gateway-api-visualizer:local
+    build:
+      context: .
+      target: web
+    ports:
+      - "127.0.0.1:${WEB_PORT:-8080}:8080"
+
+  api:
+    image: gateway-api-visualizer-api:local
+    profiles: [api]
+    init: true
+    build:
+      context: .
+      target: api
+    ports:
+      - "127.0.0.1:${API_PORT:-3001}:3001"
