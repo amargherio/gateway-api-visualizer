@@ -32,23 +32,34 @@ export interface BackendRef {
   weight?: number;
 }
 
+export interface RouteParentRef {
+  name: string;
+  namespace?: string;
+  sectionName?: string;
+  kind?: string;
+  group?: string;
+  port?: number;
+}
+
+export interface ValueMatch {
+  name: string;
+  value: string;
+  type?: string;
+}
+
 export interface HTTPRoute {
   apiVersion: string; // gateway.networking.k8s.io/v1beta1
   kind: 'HTTPRoute';
   metadata: { name: string; namespace?: string };
   spec: {
-    parentRefs?: Array<{
-      name: string;
-      namespace?: string;
-      sectionName?: string;
-      kind?: string;
-    }>;
+    parentRefs?: RouteParentRef[];
     hostnames?: string[];
     rules?: Array<{
       matches?: Array<{
         path?: { type?: string; value?: string };
         method?: string;
-        headers?: Array<{ name: string; value: string }>;
+        headers?: ValueMatch[];
+        queryParams?: ValueMatch[];
       }>;
       backendRefs?: BackendRef[]; // standard
       // Accept legacy forwardTo forms by treating unknown keys leniently
@@ -61,7 +72,7 @@ export interface TLSRoute {
   kind: 'TLSRoute';
   metadata: { name: string; namespace?: string };
   spec: {
-    parentRefs?: Array<{ name: string; namespace?: string; sectionName?: string; kind?: string }>;
+    parentRefs?: RouteParentRef[];
     hostnames?: string[];
     rules?: Array<{ backendRefs?: BackendRef[] }>;
   };
@@ -72,7 +83,7 @@ export interface TCPRoute {
   kind: 'TCPRoute';
   metadata: { name: string; namespace?: string };
   spec: {
-    parentRefs?: Array<{ name: string; namespace?: string; sectionName?: string; kind?: string }>;
+    parentRefs?: RouteParentRef[];
     rules?: Array<{ backendRefs?: BackendRef[] }>;
   };
 }
@@ -82,9 +93,12 @@ export interface GRPCRoute {
   kind: 'GRPCRoute';
   metadata: { name: string; namespace?: string };
   spec: {
-    parentRefs?: Array<{ name: string; namespace?: string; sectionName?: string; kind?: string }>;
+    parentRefs?: RouteParentRef[];
     hostnames?: string[];
-    rules?: Array<{ backendRefs?: BackendRef[] }>;
+    rules?: Array<{
+      matches?: Array<{ method?: { type?: string; service?: string; method?: string }; headers?: ValueMatch[] }>;
+      backendRefs?: BackendRef[];
+    }>;
   };
 }
 
@@ -156,6 +170,9 @@ export interface RouteCoverageDetail {
   parentRefs: string[]; // gateway / listener ids actually linked
   missingParentRefs?: Array<{ name: string; namespace: string }>; // if specified parentRef gateway not present
   kind: string; // HTTPRoute | TLSRoute | TCPRoute | GRPCRoute
+  hostnames?: string[];
+  listenerHostnames?: string[];
+  matches?: string[];
   backendRefs?: Array<{ id: string; service: string; namespace: string; resolved: boolean; crossNamespace: boolean; granted: boolean }>;
   missingBackends?: Array<{ name: string; namespace: string }>;
 }
@@ -228,7 +245,9 @@ export function buildFullGraph(params: {
   for (const gw of gateways) {
     const ns = gw.metadata.namespace || 'default';
     const gwId = `gateway:${ns}/${gw.metadata.name}`;
-    nodes.push({ id: gwId, type: 'gateway', label: gw.metadata.name });
+    nodes.push({ id: gwId, type: 'gateway', label: gw.metadata.name, data: {
+      hostnames: [...new Set((gw.spec.listeners || []).flatMap(listener => listener.hostname ? [listener.hostname] : []))],
+    } });
     if (gw.spec.gatewayClassName) {
       const gcId = `gatewayclass:${gw.spec.gatewayClassName}`;
       if (!nodes.find(n => n.id === gcId)) {
@@ -238,7 +257,9 @@ export function buildFullGraph(params: {
     }
     for (const listener of gw.spec.listeners || []) {
       const listenerId = `${gwId}:listener:${listener.name || listener.port}`;
-      nodes.push({ id: listenerId, type: 'listener', label: listener.name || `${listener.port}` });
+      nodes.push({ id: listenerId, type: 'listener', label: listener.name || `${listener.port}`, data: {
+        hostnames: listener.hostname ? [listener.hostname] : [],
+      } });
       edges.push({ id: `${gwId}->${listenerId}`, source: gwId, target: listenerId, type: 'owns' });
     }
   }
@@ -271,7 +292,16 @@ export function buildFullGraph(params: {
   for (const rt of routes) {
     const namespace = rt.metadata.namespace || 'default';
     const rtId = `route:${namespace}/${rt.metadata.name}`;
-    nodes.push({ id: rtId, type: 'route', label: rt.metadata.name, data: { kind: rt.kind } });
+    const hostnames = rt.kind === 'TCPRoute' ? [] : [...new Set(rt.spec.hostnames || [])];
+    const listenerHostnames = [...new Set((rt.spec.parentRefs || []).flatMap(parent => {
+      if ((parent.kind && parent.kind !== 'Gateway') || (parent.group !== undefined && !['gateway.networking.k8s.io', 'gateway.networking.x-k8s.io'].includes(parent.group))) return [];
+      const gateway = gateways.find(gw => gw.metadata.name === parent.name && (gw.metadata.namespace || 'default') === (parent.namespace || namespace));
+      return (gateway?.spec.listeners || [])
+        .filter(listener => (!parent.sectionName || listener.name === parent.sectionName) && (parent.port === undefined || listener.port === parent.port))
+        .flatMap(listener => listener.hostname ? [listener.hostname] : []);
+    }))];
+    const matches = configuredRouteMatches(rt);
+    nodes.push({ id: rtId, type: 'route', label: rt.metadata.name, data: { kind: rt.kind, hostnames, listenerHostnames, matches } });
 
     let isCovered = false;
     const parentRefIds: string[] = [];
@@ -341,6 +371,9 @@ export function buildFullGraph(params: {
       parentRefs: parentRefIds,
       missingParentRefs: missingParentRefs.length ? missingParentRefs : undefined,
       kind: rt.kind,
+      hostnames,
+      listenerHostnames,
+      matches,
       backendRefs: backendRefs.length ? backendRefs : undefined,
       missingBackends: missingBackendsList.length ? missingBackendsList : undefined,
     });
@@ -367,4 +400,28 @@ export function buildFullGraph(params: {
 /** Backward compatible wrapper keeping original signature & behavior subset */
 export function buildCoverageGraph(gateways: Gateway[], routes: AnyRoute[]): CoverageGraph {
   return buildFullGraph({ gateways, routes });
+}
+
+export function configuredRouteMatches(route: AnyRoute): string[] {
+  const constraints = (headers: ValueMatch[] = [], queryParams: ValueMatch[] = []) =>
+    [...headers.map(header => `Header ${header.name} ${header.type || 'Exact'} ${header.value}`),
+      ...queryParams.map(query => `Query ${query.name} ${query.type || 'Exact'} ${query.value}`)]
+      .map(value => ` · ${value}`).join('');
+  if (route.kind === 'HTTPRoute') {
+    return [...new Set((route.spec.rules || []).flatMap(rule =>
+      (rule.matches?.length ? rule.matches : [{}]).map(match =>
+        `${match.path?.type || 'PathPrefix'} ${match.path?.value ?? '/'}${match.method ? ` · ${match.method}` : ''}${constraints(match.headers, match.queryParams)}`,
+      ),
+    ))];
+  }
+  if (route.kind === 'GRPCRoute') {
+    return [...new Set((route.spec.rules || []).flatMap(rule =>
+      (rule.matches?.length ? rule.matches : [{}]).map(match =>
+        (match.method
+          ? `${match.method.type || 'Exact'} ${match.method.service || '*'}/${match.method.method || '*'}`
+          : 'Any gRPC method') + constraints(match.headers),
+      ),
+    ))];
+  }
+  return [];
 }

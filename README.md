@@ -10,6 +10,7 @@ Visualize relationships between Kubernetes Gateway API `Gateway` and route resou
 - In-place version switching that preserves editor text, cursor, scroll position, and undo history
 - Relationship graph for `Gateway`, `HTTPRoute`, `TLSRoute`, `TCPRoute`, and `GRPCRoute`
 - Route parent-reference summary, filtering, sorting, pagination, and keyboard inspection
+- Configured route and referenced-listener hostnames, HTTP path/method/header/query and gRPC service/method/header matches with dedicated filters and sortable route-table columns
 - Same-origin, checked-in audit bundles; the application itself does not upload raw manifests
 - Responsive light and dark engineering workbench
 - Progressive WebMCP integration with user-approved manifest changes and an agent-readable `llms.txt`
@@ -141,10 +142,34 @@ CoverageGraph {
   edges: { id, source, target, type: owns|routes }[]
   summary: { gateways, routes, coveredRoutes, uncoveredRoutes, coveragePercent }
   routeCoverage: {
-     id, name, namespace, covered, parentRefs[], missingParentRefs?[]
+     id, name, namespace, kind, hostnames[], listenerHostnames[], matches[], covered, parentRefs[], missingParentRefs?[]
   }[]
 }
 ```
+
+The route table and relationship graph provide **Hostname** and **Route match**
+filters alongside existing search and parent-reference controls. Text filters are
+case-insensitive substrings and combine with AND. Search also includes hostnames
+and match values. Table and graph filters remain independent, as before. Every
+route-table column can be sorted ascending or descending by activating its header.
+Array columns sort by normalized alphabetically ordered values; empty arrays
+sort first ascending, and namespace/name break ties. Sorting resets pagination.
+
+**Hostname scope** defaults to route hostnames. Select referenced listener
+hostnames or both to discover routes through Gateway listeners. Listener values
+are displayed separately, respect parent namespace/section/port, and do not imply
+hostname overlap, inheritance, or controller acceptance. Hostname filtering also
+removes unrelated graph resources, preserving matching resources and their context.
+Wildcard hostnames are displayed and searched literally, not evaluated as DNS
+patterns. Unspecified hostnames are labelled explicitly and do not match a
+hostname filter. TCPRoute hostnames and TCP/TLS path matches are not applicable.
+HTTP rules with omitted paths display the default `PathPrefix /`; gRPC rules
+with no method constraint display `Any gRPC method`. No rules are distinguished
+from unconstrained rules. These values do not prove controller acceptance.
+HTTP header and query constraints and gRPC header constraints are included in
+match summaries and searches, including exact/regular-expression match types.
+Malformed routing fields produce explicit structural diagnostics instead of
+preventing the API from returning an analysis response.
 
 ## LLM and WebMCP access
 
@@ -268,6 +293,25 @@ curl -X POST http://127.0.0.1:3001/api/analyze \
 ```
 
 The JSON result includes release metadata, structural and version-specific CRD diagnostics, supported CRDs/features, and the relationship graph. The service accepts at most 1 MiB of JSON per request and does not log or store submitted manifests. The browser workbench continues analyzing manifests locally without uploading them. GitHub Pages hosts only the static browser app; deploy the API separately on a Node-capable host and use that service's origin for API clients. Pages URLs do not serve these endpoints.
+
+Route coverage rows and route node data include `hostnames`, `listenerHostnames`,
+and human-readable `matches` arrays. Gateway/listener node data includes configured `hostnames`.
+`POST /api/analyze` accepts an optional `filters` object with `search`, `hostname`,
+`hostnameScope` (`ROUTE`, `LISTENER`, `ALL`; default `ROUTE`), `routeMatch`,
+`kind` (`ALL`, `HTTPRoute`, `TLSRoute`, `TCPRoute`, `GRPCRoute`), and
+`parentRefs` (`ALL`, `COVERED`, `UNCOVERED`). For example:
+
+```json
+{ "gatewayApiVersion": "1.6", "resources": [], "filters": { "hostname": "example.com", "routeMatch": "/api" } }
+```
+
+Filtering narrows returned routes and their edges. With a hostname filter,
+only matching resources and related non-route context are retained for `ALL`
+kinds. Without a hostname filter, existing non-route context is preserved.
+Summary counts, diagnostics, and secret detection always
+describe the entire submitted manifest. Omitting filters preserves the existing
+response behavior. WebMCP resource queries and graph controls accept the same
+hostname, hostname-scope and route-match fields; empty strings clear text filters.
 
 ## License
 

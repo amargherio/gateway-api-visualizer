@@ -38,6 +38,7 @@
     StatefulSet,
   } from './lib/shared.js';
   import { buildFullGraph } from './lib/shared.js';
+  import { filterResourceGraph } from './lib/resourceFilters.js';
 
   type ParserIssue = { line: number; column: number; message: string };
   type KubernetesResource = Gateway | AnyRoute | Service | Deployment | StatefulSet | DaemonSet | GatewayClass | ReferenceGrant;
@@ -59,8 +60,11 @@
   let elements: ElementDefinition[] = [];
   let searchTerm = '';
   let pendingSearch = '';
-  let filterKind = 'ALL';
-  let filterCoverage = 'ALL';
+  let filterKind: NonNullable<ResourceQuery['kind']> = 'ALL';
+  let filterCoverage: NonNullable<ResourceQuery['parentRefs']> = 'ALL';
+  let hostnameFilter = '';
+  let hostnameScope: NonNullable<ResourceQuery['hostnameScope']> = 'ROUTE';
+  let routeMatchFilter = '';
   let selectedId: string | null = null;
   let selectedObject: SelectedObject | null = null;
   let layoutName = 'breadthfirst';
@@ -254,7 +258,7 @@
       graph: graph
         ? { summary: graph.summary, visibleNodes: visibleNodes.length, totalNodes: graph.nodes.length }
         : null,
-      view: { search: searchTerm, kind: filterKind, parentRefs: filterCoverage, layout: layoutName },
+      view: { search: searchTerm, hostname: hostnameFilter, hostnameScope, routeMatch: routeMatchFilter, kind: filterKind, parentRefs: filterCoverage, layout: layoutName },
       privacy: 'Manifest analysis runs locally in this browser tab.',
     };
   }
@@ -276,6 +280,9 @@
     if (input.search !== undefined) searchTerm = pendingSearch = input.search;
     if (input.kind !== undefined) filterKind = input.kind;
     if (input.parentRefs !== undefined) filterCoverage = input.parentRefs;
+    if (input.hostname !== undefined) hostnameFilter = input.hostname;
+    if (input.hostnameScope !== undefined) hostnameScope = input.hostnameScope;
+    if (input.routeMatch !== undefined) routeMatchFilter = input.routeMatch;
     if (input.layout !== undefined) {
       layoutName = input.layout;
       updateLayout();
@@ -283,7 +290,7 @@
     refreshFilters();
     return {
       status: 'applied',
-      view: { search: searchTerm, kind: filterKind, parentRefs: filterCoverage, layout: layoutName },
+      view: { search: searchTerm, hostname: hostnameFilter, hostnameScope, routeMatch: routeMatchFilter, kind: filterKind, parentRefs: filterCoverage, layout: layoutName },
       visibleNodes: graph ? applyFilters(graph).nodes.length : 0,
     };
   }
@@ -330,42 +337,18 @@
   $: statusText = createStatusCopy(auditState, gatewayApiVersion, gatewayApiBundle);
 
   function applyFilters(value: CoverageGraph, requested: ResourceQuery = {}) {
-    const activeSearch = requested.search ?? searchTerm;
-    const activeKind = requested.kind ?? filterKind;
-    const activeCoverage = requested.parentRefs ?? filterCoverage;
-    const allowedRouteIds = new Set(
-      value.routeCoverage
-        .filter((route: RouteCoverageDetail) => {
-          if (activeKind !== 'ALL' && route.kind !== activeKind) return false;
-          if (activeCoverage === 'COVERED' && !route.covered) return false;
-          if (activeCoverage === 'UNCOVERED' && route.covered) return false;
-          if (activeSearch) {
-            const search = activeSearch.toLowerCase();
-            if (!route.name.toLowerCase().includes(search) && !route.namespace.toLowerCase().includes(search)) return false;
-          }
-          return true;
-        })
-        .map((route) => route.id),
-    );
-
-    const nodes = value.nodes.filter((node: GraphNode) => {
-      if (activeKind === 'ALL') {
-        if (node.type === 'route' && !allowedRouteIds.has(node.id)) return false;
-        if (!activeSearch) return true;
-        return node.label.toLowerCase().includes(activeSearch.toLowerCase()) || node.type !== 'route';
-      }
-      if (['HTTPRoute', 'TLSRoute', 'TCPRoute', 'GRPCRoute'].includes(activeKind)) {
-        return node.type === 'route' && allowedRouteIds.has(node.id);
-      }
-      return node.type === activeKind && (!activeSearch || node.label.toLowerCase().includes(activeSearch.toLowerCase()));
+    return filterResourceGraph(value, {
+      search: requested.search ?? searchTerm,
+      hostname: requested.hostname ?? hostnameFilter,
+      hostnameScope: requested.hostnameScope ?? hostnameScope,
+      routeMatch: requested.routeMatch ?? routeMatchFilter,
+      kind: requested.kind ?? filterKind,
+      parentRefs: requested.parentRefs ?? filterCoverage,
     });
-    const nodeIds = new Set(nodes.map((node: GraphNode) => node.id));
-    const edges = value.edges.filter((edge: GraphEdge) => nodeIds.has(edge.source) && nodeIds.has(edge.target));
-    return { nodes, edges };
   }
 
-  function toElements(value: CoverageGraph) {
-    const { nodes, edges } = applyFilters(value);
+  function toElements(value: CoverageGraph, requested: ResourceQuery = {}) {
+    const { nodes, edges } = applyFilters(value, requested);
     const mappedNodes = nodes.map((node: GraphNode) => {
       const fontSize = node.type === 'gateway' ? 12 : 10;
       const minWidths: Record<string, number> = { gateway: 60, listener: 55, route: 50, gatewayclass: 60, service: 55, workload: 55, referencegrant: 70 };
@@ -501,6 +484,9 @@
     pendingSearch = '';
     filterKind = 'ALL';
     filterCoverage = 'ALL';
+    hostnameFilter = '';
+    hostnameScope = 'ROUTE';
+    routeMatchFilter = '';
     refreshFilters();
   }
 
@@ -509,7 +495,9 @@
     layoutConfig = { name: layoutName, animate: !reduceMotion, animationDuration: reduceMotion ? 0 : 180 };
   }
 
-  $: visibleNodes = graph ? applyFilters(graph).nodes : [];
+  $: graphFilters = { search: searchTerm, hostname: hostnameFilter, hostnameScope, routeMatch: routeMatchFilter, kind: filterKind, parentRefs: filterCoverage };
+  $: visibleNodes = graph ? filterResourceGraph(graph, graphFilters).nodes : [];
+  $: elements = graph ? toElements(graph, graphFilters) : [];
 </script>
 
 <a class="skip-link" href="#main-content">Skip to main content</a>
@@ -636,7 +624,15 @@
         <header class="region-header topology-header">
           <div><h2 id="relationships-title">Relationships</h2><span class="region-note">Local relationship preview</span></div>
           <div class="topology-controls" role="group" aria-label="Relationship graph controls">
-            <label>Search <input class="input input-bordered" type="search" placeholder="Name or namespace" bind:value={pendingSearch} on:input={onSearchInput} /></label>
+            <label>Search <input class="input input-bordered" type="search" placeholder="Name, namespace, hostname or match" bind:value={pendingSearch} on:input={onSearchInput} /></label>
+            <label>Hostname <input class="input input-bordered" type="search" placeholder="Configured hostname" bind:value={hostnameFilter} on:input={refreshFilters} /></label>
+            <div class="control-group">
+              <label for="graph-hostname-scope">Hostname scope</label>
+              <select id="graph-hostname-scope" class="select select-bordered" bind:value={hostnameScope} on:change={refreshFilters}>
+                <option value="ROUTE">Route hostnames</option><option value="LISTENER">Referenced listener hostnames</option><option value="ALL">Route and listener hostnames</option>
+              </select>
+            </div>
+            <label>Route match <input class="input input-bordered" type="search" placeholder="Path, method, header or query" bind:value={routeMatchFilter} on:input={refreshFilters} /></label>
             <label>Kind
               <select class="select select-bordered" bind:value={filterKind} on:change={refreshFilters}>
                 <option value="ALL">All kinds</option><option value="HTTPRoute">HTTPRoute</option><option value="TLSRoute">TLSRoute</option><option value="TCPRoute">TCPRoute</option><option value="GRPCRoute">GRPCRoute</option>
@@ -667,8 +663,8 @@
             <Graph {elements} layout={layoutConfig} on:select={onGraphSelect} externalSelect={selectedId} />
           {:else}
             <div class="empty-state">
-              <h3>{yamlErrors.length ? 'Manifest parsing paused' : 'No relationships yet'}</h3>
-              <p>{yamlErrors.length ? 'Correct the YAML syntax to rebuild the relationship preview.' : 'Paste a manifest or insert a sample to map Gateway API resources.'}</p>
+              <h3>{yamlErrors.length ? 'Manifest parsing paused' : graph?.nodes.length ? 'No matching resources' : 'No relationships yet'}</h3>
+              <p>{yamlErrors.length ? 'Correct the manifest errors to rebuild the relationship preview.' : graph?.nodes.length ? 'Change or reset the graph filters to show configured resources.' : 'Paste a manifest or insert a sample to map Gateway API resources.'}</p>
             </div>
           {/if}
         </div>

@@ -43,7 +43,10 @@ Input: empty object.
 Read-only. Queries resources and route coverage in the current manifest. Results are capped at 100 resources and 100 routes and include a truncation flag.
 
 Optional input:
-- \`search\`: case-insensitive resource name or namespace text.
+- \`search\`: case-insensitive route name, namespace, configured hostname, or route-match text.
+- \`hostname\`: case-insensitive configured hostname substring.
+- \`hostnameScope\`: \`ROUTE\`, \`LISTENER\`, or \`ALL\`; omitted query fields use the active graph view (initial scope \`ROUTE\`).
+- \`routeMatch\`: case-insensitive HTTP path/type/method/header/query or gRPC service/method/header substring.
 - \`kind\`: \`ALL\`, \`HTTPRoute\`, \`TLSRoute\`, \`TCPRoute\`, or \`GRPCRoute\`.
 - \`parentRefs\`: \`ALL\`, \`COVERED\`, or \`UNCOVERED\`.
 
@@ -62,7 +65,10 @@ The tool completes after approval and the resulting manifest has been parsed and
 Updates transient graph controls without changing manifest content. Every field is optional.
 
 Input:
-- \`search\`: case-insensitive resource name or namespace text.
+- \`search\`: case-insensitive route name, namespace, configured hostname, or route-match text.
+- \`hostname\`: configured hostname substring; empty string clears it.
+- \`hostnameScope\`: \`ROUTE\`, \`LISTENER\`, or \`ALL\` for route hostnames, referenced listener hostnames, or both.
+- \`routeMatch\`: HTTP path/type/method/header/query or gRPC service/method/header substring; empty string clears it.
 - \`kind\`: \`ALL\`, \`HTTPRoute\`, \`TLSRoute\`, \`TCPRoute\`, or \`GRPCRoute\`.
 - \`parentRefs\`: \`ALL\`, \`COVERED\`, or \`UNCOVERED\`.
 - \`layout\`: \`breadthfirst\`, \`grid\`, \`circle\`, \`concentric\`, or \`cose\`.
@@ -99,6 +105,7 @@ The visible Gateway API release form declares \`select_gateway_api_version\`. An
 
 - CRD diagnostics are schema compatibility checks, not full Kubernetes admission. CEL rules are not executed.
 - A route parent reference expresses intent. It does not prove that a controller accepted or programmed the attachment.
+- Route hostnames and referenced-listener hostnames are separate configured values, not proof of inheritance, overlap, or acceptance. Listener discovery respects parent namespace, section, and port. Filters combine with AND and treat wildcards literally, not as DNS matching. Hostname filtering retains matching resources and related non-route context; full-manifest counts remain unchanged. HTTP rules without a path show the default PathPrefix /; gRPC rules without a method show Any gRPC method. Header/query constraints are preserved in match summaries. TCP/TLS routes have no path/method matches.
 - Release feature metadata does not establish support in any specific Gateway API controller.
 - The WebMCP API is an evolving browser proposal. Native availability depends on the browser or agent host.
 `;

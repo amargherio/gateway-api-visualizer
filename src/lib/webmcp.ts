@@ -1,4 +1,5 @@
 import type { GatewayApiVersion } from './gatewayApi.js';
+import type { ResourceFilters } from './resourceFilters.js';
 
 export type GraphKindFilter = 'ALL' | 'HTTPRoute' | 'TLSRoute' | 'TCPRoute' | 'GRPCRoute';
 export type GraphCoverageFilter = 'ALL' | 'COVERED' | 'UNCOVERED';
@@ -9,11 +10,7 @@ export interface ManifestAuditProposal {
   version: GatewayApiVersion;
 }
 
-export interface ResourceQuery {
-  search?: string;
-  kind?: GraphKindFilter;
-  parentRefs?: GraphCoverageFilter;
-}
+export interface ResourceQuery extends ResourceFilters {}
 
 export interface GraphViewInput extends ResourceQuery {
   layout?: GraphLayout;
@@ -49,6 +46,7 @@ export interface WebMcpRegistration {
 const VERSION_VALUES = ['1.3', '1.4', '1.5', '1.6'] as const;
 const KIND_VALUES = ['ALL', 'HTTPRoute', 'TLSRoute', 'TCPRoute', 'GRPCRoute'] as const;
 const COVERAGE_VALUES = ['ALL', 'COVERED', 'UNCOVERED'] as const;
+const HOSTNAME_SCOPE_VALUES = ['ROUTE', 'LISTENER', 'ALL'] as const;
 const LAYOUT_VALUES = ['breadthfirst', 'grid', 'circle', 'concentric', 'cose'] as const;
 
 function objectInput(value: unknown): Record<string, unknown> {
@@ -75,6 +73,9 @@ function resourceQuery(value: unknown): ResourceQuery {
   const input = objectInput(value ?? {});
   return {
     search: optionalString(input.search, 'search'),
+    hostname: optionalString(input.hostname, 'hostname'),
+    hostnameScope: input.hostnameScope === undefined ? undefined : enumValue(input.hostnameScope, HOSTNAME_SCOPE_VALUES, 'hostnameScope'),
+    routeMatch: optionalString(input.routeMatch, 'routeMatch'),
     kind: input.kind === undefined ? undefined : enumValue(input.kind, KIND_VALUES, 'kind'),
     parentRefs:
       input.parentRefs === undefined
@@ -102,14 +103,17 @@ export function createGatewayApiTools(host: GatewayApiToolHost): WebMcpTool[] {
       name: 'query_gateway_resources',
       title: 'Query Gateway resources',
       description:
-        'Returns resources and route coverage from the current local manifest, optionally filtered by text, route kind, or parent-reference state.',
+        'Returns resources and route coverage from the current local manifest, optionally filtered by text, configured hostname, route match, route kind, or parent-reference state.',
       inputSchema: {
         type: 'object',
         properties: {
           search: {
             type: 'string',
-            description: 'Optional case-insensitive resource name or namespace text.',
+            description: 'Optional case-insensitive name, namespace, configured hostname, or route-match text.',
           },
+          hostname: { type: 'string', description: 'Case-insensitive configured hostname substring; not DNS wildcard evaluation.' },
+          hostnameScope: { type: 'string', enum: HOSTNAME_SCOPE_VALUES, description: 'Search route hostnames, referenced listener hostnames, or both. Defaults to the current graph scope (initially ROUTE).' },
+          routeMatch: { type: 'string', description: 'Case-insensitive substring of HTTP path/type/method/header/query or gRPC service/method/header constraints.' },
           kind: {
             type: 'string',
             enum: KIND_VALUES,
@@ -173,14 +177,17 @@ export function createGatewayApiTools(host: GatewayApiToolHost): WebMcpTool[] {
       name: 'set_graph_view',
       title: 'Set graph view',
       description:
-        'Updates the visible relationship graph search, route-kind filter, parent-reference filter, and layout without changing the manifest.',
+        'Updates the visible relationship graph search, hostname, route-match, route-kind and parent-reference filters, and layout without changing the manifest.',
       inputSchema: {
         type: 'object',
         properties: {
           search: {
             type: 'string',
-            description: 'Optional case-insensitive resource name or namespace text.',
+            description: 'Optional case-insensitive name, namespace, configured hostname, or route-match text.',
           },
+          hostname: { type: 'string', description: 'Configured hostname substring; empty string clears the filter.' },
+          hostnameScope: { type: 'string', enum: HOSTNAME_SCOPE_VALUES, description: 'Use route hostnames, referenced listener hostnames, or both.' },
+          routeMatch: { type: 'string', description: 'HTTP path/type/method/header/query or gRPC service/method/header substring; empty string clears the filter.' },
           kind: { type: 'string', enum: KIND_VALUES, description: 'Route-kind filter.' },
           parentRefs: {
             type: 'string',

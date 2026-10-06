@@ -1,9 +1,11 @@
 <script lang="ts">
   import { createEventDispatcher, onDestroy } from 'svelte';
   import type { RouteCoverageDetail } from './shared.js';
+  import { computeRouteCoverageView, routeCoverageColumns, type RouteSortColumn } from './routeCoverageView.js';
+  import type { ResourceFilters } from './resourceFilters.js';
 
   export let rows: RouteCoverageDetail[] = [];
-  export let initialSortCol: 'namespace' | 'name' = 'namespace';
+  export let initialSortCol: RouteSortColumn = 'namespace';
   export let initialSortDir: 'asc' | 'desc' = 'asc';
   export let initialFilterCoverage: 'ALL' | 'COVERED' | 'UNCOVERED' = 'ALL';
   export let defaultPageSize: number | 'All' = 20;
@@ -11,11 +13,14 @@
   export let title = 'Route coverage';
   export let showTitle = true;
 
-  let sortCol: 'namespace' | 'name' = initialSortCol;
+  let sortCol: RouteSortColumn = initialSortCol;
   let sortDir: 'asc' | 'desc' = initialSortDir;
   let filterCoverage: 'ALL' | 'COVERED' | 'UNCOVERED' = initialFilterCoverage;
   let search = '';
   let pendingSearch = '';
+  let hostname = '';
+  let hostnameScope: NonNullable<ResourceFilters['hostnameScope']> = 'ROUTE';
+  let routeMatch = '';
   let page = 1;
   let pageSize: number | 'All' = defaultPageSize;
   let debounceHandle: ReturnType<typeof setTimeout> | undefined;
@@ -34,7 +39,7 @@
     }, 250);
   }
 
-  function toggleSort(column: 'namespace' | 'name') {
+  function toggleSort(column: RouteSortColumn) {
     if (sortCol === column) {
       sortDir = sortDir === 'asc' ? 'desc' : 'asc';
     } else {
@@ -45,10 +50,10 @@
   }
 
 
-  function sortLabel(column: 'namespace' | 'name') {
-    const label = column === 'namespace' ? 'namespace' : 'name';
-    if (sortCol !== column) return `Sort by ${label} ascending`;
-    return `Sort by ${label} ${sortDir === 'asc' ? 'descending' : 'ascending'}`;
+  function sortLabel(column: RouteSortColumn, activeColumn: RouteSortColumn, direction: 'asc' | 'desc') {
+    const label = routeCoverageColumns.find(value => value.key === column)!.label.toLowerCase();
+    if (activeColumn !== column) return `Sort by ${label} ascending`;
+    return `Sort by ${label} ${direction === 'asc' ? 'descending' : 'ascending'}`;
   }
 
   function setPageSize(value: string) {
@@ -64,28 +69,11 @@
     setPageSize((event.target as HTMLSelectElement).value);
   }
 
-  $: filtered = rows.filter((route) => {
-    if (filterCoverage === 'COVERED' && !route.covered) return false;
-    if (filterCoverage === 'UNCOVERED' && route.covered) return false;
-    if (!search) return true;
-
-    const query = search.toLowerCase();
-    return route.name.toLowerCase().includes(query) || route.namespace.toLowerCase().includes(query);
-  });
-  $: sorted = [...filtered].sort((left, right) => {
-    const leftValue = left[sortCol].toLowerCase();
-    const rightValue = right[sortCol].toLowerCase();
-    if (leftValue < rightValue) return sortDir === 'asc' ? -1 : 1;
-    if (leftValue > rightValue) return sortDir === 'asc' ? 1 : -1;
-
-    const namespaceCompare = left.namespace.localeCompare(right.namespace);
-    if (namespaceCompare !== 0 && sortCol !== 'namespace') return namespaceCompare;
-    return left.name.localeCompare(right.name);
-  });
-  $: total = sorted.length;
+  $: view = computeRouteCoverageView({ rows, search, hostname, hostnameScope, routeMatch, filterCoverage, sortCol, sortDir, pageSize: 'All' });
+  $: total = view.total;
   $: totalPages = pageSize === 'All' ? 1 : Math.max(1, Math.ceil(total / pageSize));
   $: if (page > totalPages) page = totalPages;
-  $: visible = pageSize === 'All' ? sorted : sorted.slice((page - 1) * pageSize, page * pageSize);
+  $: visible = pageSize === 'All' ? view.visible : view.visible.slice((page - 1) * pageSize, page * pageSize);
 
   onDestroy(() => {
     if (debounceHandle) clearTimeout(debounceHandle);
@@ -108,10 +96,24 @@
         class="input input-bordered"
         id="route-search"
         type="search"
-        placeholder="Name or namespace"
+        placeholder="Name, namespace, hostname or match"
         bind:value={pendingSearch}
         on:input={onSearchInput}
       />
+    </div>
+    <div>
+      <label for="route-hostname">Hostname</label>
+      <input class="input input-bordered" id="route-hostname" type="search" placeholder="Configured hostname" bind:value={hostname} on:input={() => (page = 1)} />
+    </div>
+    <div>
+      <label for="route-hostname-scope">Hostname scope</label>
+      <select class="select select-bordered" id="route-hostname-scope" bind:value={hostnameScope} on:change={() => (page = 1)}>
+        <option value="ROUTE">Route hostnames</option><option value="LISTENER">Referenced listener hostnames</option><option value="ALL">Route and listener hostnames</option>
+      </select>
+    </div>
+    <div>
+      <label for="route-match">Route match</label>
+      <input class="input input-bordered" id="route-match" type="search" placeholder="Path, method, header or query" bind:value={routeMatch} on:input={() => (page = 1)} />
     </div>
     <div>
       <label for="route-coverage">Parent reference</label>
@@ -136,24 +138,18 @@
     <table aria-label={title}>
       <thead>
         <tr>
-          <th scope="col" aria-sort={sortCol === 'namespace' ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'}>
-            <button type="button" on:click={() => toggleSort('namespace')} aria-label={sortLabel('namespace')}>
-              Namespace{#if sortCol === 'namespace'} <span aria-hidden="true">{sortDir === 'asc' ? '↑' : '↓'}</span>{/if}
-            </button>
-          </th>
-          <th scope="col" aria-sort={sortCol === 'name' ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'}>
-            <button type="button" on:click={() => toggleSort('name')} aria-label={sortLabel('name')}>
-              Name{#if sortCol === 'name'} <span aria-hidden="true">{sortDir === 'asc' ? '↑' : '↓'}</span>{/if}
-            </button>
-          </th>
-          <th scope="col">Parent reference</th>
-          <th scope="col">Parents</th>
-          <th scope="col">Missing parents</th>
+          {#each routeCoverageColumns as column}
+            <th scope="col" aria-sort={sortCol === column.key ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'}>
+              <button type="button" on:click={() => toggleSort(column.key)} aria-label={sortLabel(column.key, sortCol, sortDir)}>
+                {column.label}{#if sortCol === column.key} <span aria-hidden="true">{sortDir === 'asc' ? '↑' : '↓'}</span>{/if}
+              </button>
+            </th>
+          {/each}
         </tr>
       </thead>
       <tbody>
         {#if visible.length === 0}
-          <tr><td colspan="5">No matching routes</td></tr>
+          <tr><td colspan={routeCoverageColumns.length}>No matching routes</td></tr>
         {/if}
         {#each visible as route}
           <tr>
@@ -163,10 +159,22 @@
                 {route.name}
               </button>
             </td>
+            <td>
+              {#each route.hostnames || [] as hostname}<div><code>{hostname}</code></div>{/each}
+              {#if !route.hostnames?.length}{route.kind === 'TCPRoute' ? 'Not applicable' : 'Any hostname (unspecified)'}{/if}
+            </td>
+            <td>
+              {#each route.listenerHostnames || [] as hostname}<div><code>{hostname}</code></div>{/each}
+              {#if !route.listenerHostnames?.length}None configured{/if}
+            </td>
+            <td>
+              {#each route.matches || [] as match}<div><code>{match}</code></div>{/each}
+              {#if !route.matches?.length}{['TLSRoute', 'TCPRoute'].includes(route.kind) ? 'Not applicable' : 'No rules'}{/if}
+            </td>
             <td>{route.covered ? 'Has parent ref' : 'No parent ref'}</td>
             <td>{route.parentRefs.length ? route.parentRefs.join(', ') : 'None'}</td>
             <td class:route-coverage__missing={Boolean(route.missingParentRefs?.length)}>
-              {route.missingParentRefs?.length ? route.missingParentRefs.map((parent) => parent.name).join(', ') : 'None'}
+              {route.missingParentRefs?.length ? route.missingParentRefs.map((parent) => `${parent.namespace}/${parent.name}`).join(', ') : 'None'}
             </td>
           </tr>
         {/each}
@@ -225,6 +233,19 @@
 
   .route-coverage__table-wrap {
     overflow-x: auto;
+  }
+
+  td code {
+    overflow-wrap: anywhere;
+  }
+
+  .route-coverage__controls > div {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  input {
+    max-width: 100%;
   }
 
   table {
