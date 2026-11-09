@@ -1,4 +1,5 @@
 import { gatewayApiReleases } from '../src/lib/gatewayApi.js';
+import type { ResourceFilters } from '../src/lib/resourceFilters.js';
 
 export type ApiErrorCode =
   | 'invalid_json'
@@ -12,6 +13,7 @@ export type ApiErrorCode =
 export interface AnalyzeRequest {
   gatewayApiVersion: (typeof gatewayApiReleases)[number]['id'];
   resources: Record<string, unknown>[];
+  filters?: ResourceFilters;
 }
 
 const gatewayApiVersions = gatewayApiReleases.map((release) => release.id);
@@ -89,6 +91,9 @@ const routeCoverageSchema = {
       },
     },
     kind: { type: 'string' },
+    hostnames: { type: 'array', items: { type: 'string' } },
+    listenerHostnames: { type: 'array', items: { type: 'string' } },
+    matches: { type: 'array', items: { type: 'string' } },
     backendRefs: {
       type: 'array',
       items: {
@@ -155,6 +160,19 @@ export const analyzeRequestSchema = {
   properties: {
     gatewayApiVersion: { type: 'string', enum: gatewayApiVersions },
     resources: { type: 'array', items: { type: 'object', additionalProperties: true } },
+    filters: {
+      type: 'object',
+      additionalProperties: false,
+      description: 'Case-insensitive substring filters combine with AND. Hostname filtering retains only matching routes/resources and related non-route context. Full-manifest summary and diagnostics are preserved.',
+      properties: {
+        search: { type: 'string' },
+        hostname: { type: 'string', description: 'Configured hostname text, not DNS wildcard evaluation.' },
+        hostnameScope: { enum: ['ROUTE', 'LISTENER', 'ALL'], default: 'ROUTE', description: 'Route hostnames, referenced listener hostnames, or both; these are not effective/accepted hostnames.' },
+        routeMatch: { type: 'string', description: 'HTTP path/type/method/header/query or gRPC service/method/header text.' },
+        kind: { enum: ['ALL', 'HTTPRoute', 'TLSRoute', 'TCPRoute', 'GRPCRoute'] },
+        parentRefs: { enum: ['ALL', 'COVERED', 'UNCOVERED'] },
+      },
+    },
   },
 } as const;
 

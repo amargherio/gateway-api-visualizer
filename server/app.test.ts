@@ -76,6 +76,82 @@ afterEach(async () => {
 });
 
 describe('Gateway API analysis service', () => {
+  it('serializes routing metadata and applies optional filters without changing full-manifest counts', async () => {
+    const resources = [
+      {
+        apiVersion: 'gateway.networking.k8s.io/v1', kind: 'HTTPRoute', metadata: { name: 'api' },
+        spec: { hostnames: ['api.example.com'], rules: [{ matches: [{ path: { type: 'Exact', value: '/v1' }, method: 'GET' }] }] },
+      },
+      {
+        apiVersion: 'gateway.networking.k8s.io/v1', kind: 'GRPCRoute', metadata: { name: 'rpc' },
+        spec: { hostnames: ['rpc.example.com'], rules: [{ matches: [{ method: { service: 'example.Service', method: 'List' } }] }] },
+      },
+    ];
+    const response = await inject({
+      gatewayApiVersion: '1.6', resources,
+      filters: { hostname: 'API.EXAMPLE', routeMatch: '/v1', kind: 'HTTPRoute', parentRefs: 'UNCOVERED' },
+    });
+    const body = parseJson(response);
+    expect(response.statusCode).toBe(200);
+    expect(body).toMatchObject({
+      graph: {
+        summary: { routes: 2 },
+        routeCoverage: [{ name: 'api', hostnames: ['api.example.com'], matches: ['Exact /v1 · GET'] }],
+      },
+    });
+    const validator = new Ajv({ strict: false }).compile(analyzeResponseSchema);
+    expect(validator(body)).toBe(true);
+    const unfiltered = parseJson(await inject({ gatewayApiVersion: '1.6', resources }));
+    expect(nestedValue(unfiltered, ['graph', 'routeCoverage'])).toHaveLength(2);
+    const grpc = parseJson(await inject({ gatewayApiVersion: '1.6', resources, filters: { routeMatch: 'service/list' } }));
+    expect(nestedValue(grpc, ['graph', 'routeCoverage'])).toMatchObject([{ name: 'rpc', matches: ['Exact example.Service/List'] }]);
+  });
+
+  it.each([{ hostname: 123 }, { hostnameScope: 'EFFECTIVE' }, { routeMatch: [] }, { kind: 'Service' }, { unexpected: true }, null])(
+    'rejects invalid routing filters %j', async filters => {
+      const response = await inject({ gatewayApiVersion: '1.6', resources: [], filters });
+      expect(response.statusCode).toBe(400);
+      expect(parseJson(response)).toMatchObject({ error: { code: 'invalid_request' } });
+    },
+  );
+
+  it.each([
+    { kind: 'HTTPRoute', spec: { hostnames: 42 } },
+    { kind: 'HTTPRoute', spec: { hostnames: [42] } },
+    { kind: 'HTTPRoute', spec: { hostnames: 'example.com' } },
+    { kind: 'Gateway', spec: { listeners: [{ name: 'http', port: 80, protocol: 'HTTP', hostname: 42 }] } },
+    { kind: 'HTTPRoute', spec: { rules: [{ matches: [{ headers: [{ name: 'x-version', value: 42 }] }] }] } },
+    { kind: 'HTTPRoute', spec: { rules: [{ matches: [{ queryParams: [null] }] }] } },
+    { kind: 'GRPCRoute', spec: { rules: [{ matches: [{ method: 42 }] }] } },
+  ])('returns diagnostics rather than HTTP 500 for malformed routing input %j', async ({ kind, spec }) => {
+    const response = await inject({ gatewayApiVersion: '1.6', resources: [
+      { apiVersion: 'gateway.networking.k8s.io/v1', kind, metadata: { name: 'invalid' }, spec },
+    ], filters: { hostname: 'example' } });
+    expect(response.statusCode).toBe(200);
+    const body = parseJson(response);
+    expect(body).toMatchObject({ graph: null, resourceDiagnostics: [{ resourceIndex: 0 }] });
+    expect(nestedValue(body, ['compatibilityDiagnostics'])).not.toHaveLength(0);
+    expect(new Ajv({ strict: false }).compile(analyzeResponseSchema)(body)).toBe(true);
+  });
+
+  it('serializes listener hostnames and full match constraints with scoped API filtering', async () => {
+    const resources = [
+      { apiVersion: 'gateway.networking.k8s.io/v1', kind: 'Gateway', metadata: { name: 'edge' },
+        spec: { gatewayClassName: 'example', listeners: [{ name: 'http', protocol: 'HTTP', port: 80, hostname: 'listener.example.com' }] } },
+      { apiVersion: 'gateway.networking.k8s.io/v1', kind: 'HTTPRoute', metadata: { name: 'web' },
+        spec: { parentRefs: [{ name: 'edge', sectionName: 'http' }], rules: [{ matches: [{ headers: [{ name: 'x-version', value: 'v1' }], queryParams: [{ name: 'mode', value: 'preview' }] }] }] } },
+    ];
+    const response = await inject({ gatewayApiVersion: '1.6', resources, filters: { hostname: 'listener.example', hostnameScope: 'LISTENER', routeMatch: 'preview' } });
+    expect(response.statusCode).toBe(200);
+    const body = parseJson(response);
+    expect(nestedValue(body, ['graph', 'routeCoverage'])).toMatchObject([{
+      name: 'web', hostnames: [], listenerHostnames: ['listener.example.com'],
+      matches: ['PathPrefix / · Header x-version Exact v1 · Query mode Exact preview'],
+    }]);
+    expect(nestedValue(body, ['graph', 'nodes'])).toHaveLength(4);
+    expect(new Ajv({ strict: false }).compile(analyzeResponseSchema)(body)).toBe(true);
+  });
+
   it.each([
     ['1.3', 'v1.3.0'],
     ['1.4', 'v1.4.1'],
@@ -150,7 +226,7 @@ describe('Gateway API analysis service', () => {
       graph: JSON.parse(JSON.stringify(expectedGraph)),
     });
     expect(body).toHaveProperty('graph.nodes', expect.arrayContaining([
-      expect.objectContaining({ id: 'route:default/route', data: { kind: 'HTTPRoute' } }),
+      expect.objectContaining({ id: 'route:default/route', data: { kind: 'HTTPRoute', hostnames: [], listenerHostnames: [], matches: ['PathPrefix /'] } }),
     ]));
     expect(body).toHaveProperty('graph.edges', expect.arrayContaining([
       expect.objectContaining({ type: 'backend', data: { crossNamespace: false, granted: true } }),

@@ -5,6 +5,7 @@ import Fastify, { type FastifyError, type FastifyInstance, type FastifyReply } f
 import { classifyResources, isGatewayApiObject } from '../src/lib/manifestAnalysis.js';
 import { containsPotentialSecrets } from '../src/lib/secretDetection.js';
 import { buildFullGraph, type CoverageGraph } from '../src/lib/shared.js';
+import { filterResourceGraph } from '../src/lib/resourceFilters.js';
 import { gatewayApiReleases, type GatewayApiBundle, type GatewayApiVersion } from '../src/lib/gatewayApi.js';
 import {
   analyzeRequestSchema,
@@ -251,7 +252,7 @@ export function buildApiApp(): FastifyInstance {
         compatibilityDiagnostics,
         secretDetection: containsPotentialSecrets(JSON.stringify(body.resources), body.resources),
         support: projectSupport(bundle),
-        graph,
+        graph: graph && body.filters ? filterResourceGraph(graph, body.filters) : graph,
       };
     },
   );

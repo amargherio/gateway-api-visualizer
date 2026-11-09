@@ -7,6 +7,10 @@
     metadata?: { name?: string; namespace?: string };
   };
   type SelectedDetails = ResourceSummary & {
+    data?: Record<string, unknown>;
+    hostnames?: string[];
+    listenerHostnames?: string[];
+    matches?: string[];
     original?: ResourceSummary;
     id?: string;
     parentRefs?: string[];
@@ -64,6 +68,32 @@
         {#if resource.metadata?.namespace}<div><dt>Namespace</dt><dd>{resource.metadata.namespace}</dd></div>{/if}
         {#if resource.kind}<div><dt>Kind</dt><dd>{resource.kind}</dd></div>{/if}
       </dl>
+
+      {@const hostnames = selected.hostnames || selected.data?.hostnames}
+      {@const matches = selected.matches || selected.data?.matches}
+      {@const listenerHostnames = selected.listenerHostnames || selected.data?.listenerHostnames}
+      {#if Array.isArray(hostnames)}
+        <section class="reference-section" aria-labelledby="hostnames-heading">
+          <h3 id="hostnames-heading">Configured hostnames</h3>
+          {#if hostnames.length}<ul>{#each hostnames as hostname}<li>{hostname}</li>{/each}</ul>
+          {:else}<p>{resource.kind === 'TCPRoute' ? 'Not applicable' : 'Any hostname (unspecified)'}</p>{/if}
+        </section>
+      {/if}
+      {#if Array.isArray(listenerHostnames)}
+        <section class="reference-section" aria-labelledby="listener-hostnames-heading">
+          <h3 id="listener-hostnames-heading">Referenced listener hostnames</h3>
+          {#if listenerHostnames.length}<ul>{#each listenerHostnames as hostname}<li>{hostname}</li>{/each}</ul>
+          {:else}<p>None configured</p>{/if}
+          <p>Configured on referenced listeners; not proof of hostname overlap or controller acceptance.</p>
+        </section>
+      {/if}
+      {#if Array.isArray(matches)}
+        <section class="reference-section" aria-labelledby="route-matches-heading">
+          <h3 id="route-matches-heading">Route matches</h3>
+          {#if matches.length}<ul>{#each matches as match}<li>{match}</li>{/each}</ul>
+          {:else}<p>{['TLSRoute', 'TCPRoute'].includes(resource.kind || '') ? 'Not applicable' : 'No rules'}</p>{/if}
+        </section>
+      {/if}
 
       {#if selected.parentRefs?.length}
         <section class="reference-section" aria-labelledby="parent-refs-heading">

@@ -31,6 +31,25 @@ describe('isGatewayApiObject', () => {
 });
 
 describe('classifyResources', () => {
+  it.each([
+    ['HTTPRoute', { hostnames: 42 }, '/hostnames'],
+    ['HTTPRoute', { hostnames: [42] }, '/hostnames/0'],
+    ['Gateway', { listeners: [{ hostname: 42 }] }, '/listeners/0/hostname'],
+    ['HTTPRoute', { parentRefs: [{ name: 42 }] }, '/parentRefs/0/name'],
+    ['HTTPRoute', { rules: [{ matches: [null] }] }, '/rules/0/matches/0'],
+    ['HTTPRoute', { rules: [{ matches: [{ path: { value: 42 } }] }] }, '/rules/0/matches/0/path/value'],
+    ['HTTPRoute', { rules: [{ matches: [{ headers: [{ name: 'version', value: 42 }] }] }] }, '/rules/0/matches/0/headers/0'],
+    ['HTTPRoute', { rules: [{ matches: [{ queryParams: {} }] }] }, '/rules/0/matches/0/queryParams'],
+    ['GRPCRoute', { rules: [{ matches: [{ method: { service: 42 } }] }] }, '/rules/0/matches/0/method/service'],
+  ])('reports malformed routing values in %s at %s', (kind, spec, path) => {
+    const result = classifyResources([{ apiVersion: GATEWAY_API_VERSION, kind, metadata: { name: 'invalid' }, spec }]);
+    expect(result.diagnostics).toEqual([expect.objectContaining({
+      resourceIndex: 0, path: `/resources/0/spec${path}`,
+    })]);
+    expect(result.categorized.routes).toEqual([]);
+    expect(result.categorized.gateways).toEqual([]);
+  });
+
   it('categorizes every supported Gateway API and workload kind in input order', () => {
     const gateway = gatewayApiResource('Gateway', 'gateway');
     const httpRoute = gatewayApiResource('HTTPRoute', 'http');

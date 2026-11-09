@@ -1,10 +1,34 @@
 import type { RouteCoverageDetail } from './shared.js';
+import { matchesRouteFilters, type ResourceFilters } from './resourceFilters.js';
+
+export const routeCoverageColumns = [
+  { key: 'namespace', label: 'Namespace' },
+  { key: 'name', label: 'Name' },
+  { key: 'hostnames', label: 'Hostnames' },
+  { key: 'listenerHostnames', label: 'Listener hostnames' },
+  { key: 'matches', label: 'Route matches' },
+  { key: 'covered', label: 'Parent reference' },
+  { key: 'parentRefs', label: 'Parents' },
+  { key: 'missingParentRefs', label: 'Missing parents' },
+] as const;
+
+export type RouteSortColumn = typeof routeCoverageColumns[number]['key'];
+
+function sortValue(route: RouteCoverageDetail, column: RouteSortColumn): string {
+  if (column === 'covered') return route.covered ? 'Has parent ref' : 'No parent ref';
+  if (column === 'missingParentRefs') return (route.missingParentRefs || []).map(parent => `${parent.namespace}/${parent.name}`).sort().join(', ').toLowerCase();
+  const value = route[column];
+  return (Array.isArray(value) ? [...value].map(value => value.toLowerCase()).sort().join(', ') : value || '').toLowerCase();
+}
 
 export interface RouteCoverageViewParams {
   rows: RouteCoverageDetail[];
   search?: string;
+  hostname?: string;
+  hostnameScope?: ResourceFilters['hostnameScope'];
+  routeMatch?: string;
   filterCoverage?: 'ALL' | 'COVERED' | 'UNCOVERED';
-  sortCol?: 'namespace' | 'name';
+  sortCol?: RouteSortColumn;
   sortDir?: 'asc' | 'desc';
   page?: number; // 1-based
   pageSize?: number | 'All';
@@ -28,18 +52,12 @@ export function computeRouteCoverageView(p: RouteCoverageViewParams): RouteCover
     page = 1,
     pageSize = 20
   } = p;
-  const s = search.trim().toLowerCase();
-  let filtered = rows.filter(r => {
-    if (filterCoverage === 'COVERED' && !r.covered) return false;
-    if (filterCoverage === 'UNCOVERED' && r.covered) return false;
-    if (s) {
-      if (!r.name.toLowerCase().includes(s) && !r.namespace.toLowerCase().includes(s)) return false;
-    }
-    return true;
-  });
+  let filtered = rows.filter(r => matchesRouteFilters(r, {
+    search, hostname: p.hostname, hostnameScope: p.hostnameScope, routeMatch: p.routeMatch, parentRefs: filterCoverage,
+  }));
   filtered = filtered.sort((a,b) => {
-    const av = a[sortCol].toLowerCase();
-    const bv = b[sortCol].toLowerCase();
+    const av = sortValue(a, sortCol);
+    const bv = sortValue(b, sortCol);
     if (av < bv) return sortDir === 'asc' ? -1 : 1;
     if (av > bv) return sortDir === 'asc' ? 1 : -1;
     if (sortCol !== 'namespace') {
